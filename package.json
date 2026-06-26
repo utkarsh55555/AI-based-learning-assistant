@@ -63,7 +63,7 @@
       "scripts": {
             "dev": "vite",
             "build": "vite build",
-            "vercel-build": "vite build",
+            "vercel-build": "node -e \"try{require('fs').rmSync('node_modules/.vite',{recursive:true,force:true})}catch(e){}\" && vite build",
             "preview": "vite preview",
             "backend": "cd src/obsidian-backend-flask && python app.py",
             "backend:win": "pushd src\\obsidian-backend-flask && python app.py && popd",
