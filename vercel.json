@@ -7,7 +7,6 @@
   "framework": null,
   "functions": {
     "api/index.py": {
-      "runtime": "python3.12",
       "maxDuration": 30,
       "memory": 512
     }
