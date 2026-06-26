@@ -405,6 +405,23 @@ Return ONLY a valid JSON array. No text before or after. Example format:
         if not isinstance(questions, list) or len(questions) == 0:
             return jsonify({"error": "Failed to generate quiz questions. Please try again."}), 500
 
+        # Normalize every field to the correct Python type
+        for i, q in enumerate(questions):
+            if not isinstance(q, dict):
+                questions[i] = {"question": str(q), "options": [], "correct": 0, "explanation": ""}
+                continue
+            opts = q.get("options") or []
+            if isinstance(opts, dict):
+                opts = list(opts.values())
+            q["question"]    = str(q.get("question") or "")
+            q["options"]     = [str(o) for o in opts]
+            q["explanation"] = str(q.get("explanation") or "")
+            q["difficulty"]  = str(q.get("difficulty") or difficulty)
+            try:
+                q["correct"] = int(q.get("correct", 0))
+            except (TypeError, ValueError):
+                q["correct"] = 0
+
         quiz_id = str(uuid.uuid4())[:8]
 
         # Persist (best-effort)
@@ -529,11 +546,19 @@ Return ONLY valid JSON, no text before or after:
 }}"""
 
         raw     = ai_complete(prompt, 2048)
-        ai_data = extract_json(raw, {
-            "title": topic, "summary": f"Study notes for {topic}.",
-            "content": raw, "keyPoints": [], "examples": [],
-            "formulas": [], "relatedTopics": [],
-        })
+        ai_data = extract_json(raw, {})
+
+        if not isinstance(ai_data, dict):
+            ai_data = {"title": topic, "summary": "", "content": str(raw), "keyPoints": [], "examples": [], "formulas": [], "relatedTopics": []}
+
+        # Normalize all fields to correct Python types
+        ai_data["title"]         = str(ai_data.get("title") or topic)
+        ai_data["summary"]       = str(ai_data.get("summary") or "")
+        ai_data["content"]       = str(ai_data.get("content") or "")
+        ai_data["keyPoints"]     = [str(p) for p in (ai_data.get("keyPoints") or []) if p]
+        ai_data["examples"]      = [str(e) for e in (ai_data.get("examples") or []) if e]
+        ai_data["formulas"]      = [str(f) for f in (ai_data.get("formulas") or []) if f]
+        ai_data["relatedTopics"] = [str(t) for t in (ai_data.get("relatedTopics") or []) if t]
 
         note_id = str(uuid.uuid4())[:8]
         note = {

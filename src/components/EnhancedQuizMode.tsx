@@ -216,12 +216,12 @@ export function EnhancedQuizMode() {
       // Parse questions from the quiz
       const parsedQuestions: Question[] = quiz.questions.map((q: any, index: number) => ({
         id: index + 1,
-        question: q.question,
+        question: typeof q.question === 'string' ? q.question : String(q.question || ''),
         type: "mcq" as const,
-        options: q.options || [],
-        correct: q.correct,
-        explanation: q.explanation || "",
-        difficulty: q.difficulty || actualDifficulty,
+        options: Array.isArray(q.options) ? q.options.map((o: any) => typeof o === 'string' ? o : String(o ?? '')) : [],
+        correct: typeof q.correct === 'number' ? q.correct : parseInt(String(q.correct ?? 0), 10),
+        explanation: typeof q.explanation === 'string' ? q.explanation : String(q.explanation || ''),
+        difficulty: typeof q.difficulty === 'string' ? q.difficulty : (actualDifficulty),
         subject: quizTopic
       }));
 

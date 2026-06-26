@@ -78,15 +78,18 @@ export function NotesGenerator() {
     try {
       setLoading(true);
       const fetchedNotes = await notesAPI.getAll();
-      const formattedNotes: Note[] = fetchedNotes.map((note: any, index: number) => ({
-        id: index + 1,
-        title: note.title,
-        subject: note.subject || "General",
-        content: note.content,
-        summary: note.content.substring(0, 150) + "...",
-        keyPoints: note.tags || [],
-        createdAt: note.created_at?.split('T')[0] || new Date().toISOString().split('T')[0]
-      }));
+      const formattedNotes: Note[] = fetchedNotes.map((note: any, index: number) => {
+        const content = typeof note.content === 'string' ? note.content : (note.content ? String(note.content) : '');
+        return {
+          id: index + 1,
+          title: typeof note.title === 'string' ? note.title : String(note.title || 'Untitled'),
+          subject: note.subject || "General",
+          content: content,
+          summary: content.length > 0 ? content.substring(0, 150) + "..." : (note.summary || ''),
+          keyPoints: Array.isArray(note.tags) ? note.tags : (Array.isArray(note.keyPoints) ? note.keyPoints : []),
+          createdAt: note.created_at?.split('T')[0] || new Date().toISOString().split('T')[0]
+        };
+      });
       setNotes(formattedNotes);
       if (formattedNotes.length > 0) {
         setSelectedNote(formattedNotes[0]);
@@ -112,15 +115,17 @@ export function NotesGenerator() {
 
     try {
       const result = await notesAPI.generate(topicToUse, newNoteSubject, "intermediate");
-      const aiData = result.ai_data;
+      const aiData = result.ai_data || {};
+      const content = typeof aiData.content === 'string' ? aiData.content : String(aiData.content || '');
+      const summary = typeof aiData.summary === 'string' ? aiData.summary : (content.substring(0, 150) || '');
       
       const newNote: Note = {
         id: notes.length + 1,
-        title: aiData.title || topicToUse,
+        title: typeof aiData.title === 'string' ? aiData.title : (topicToUse || 'New Note'),
         subject: newNoteSubject,
-        content: aiData.content,
-        summary: aiData.summary,
-        keyPoints: aiData.keyPoints || [],
+        content: content,
+        summary: summary,
+        keyPoints: Array.isArray(aiData.keyPoints) ? aiData.keyPoints.map((p: any) => String(p)) : [],
         createdAt: new Date().toISOString().split('T')[0]
       };
 
