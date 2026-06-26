@@ -68,18 +68,7 @@ class AITutorService:
         ]
         
         response = AITutorService.chat_completion(messages, temperature=0.8, max_tokens=2000)
-        
-        # Clean response - remove markdown code blocks if present
-        cleaned_response = response.strip()
-        if cleaned_response.startswith("```json"):
-            cleaned_response = cleaned_response[7:]
-        if cleaned_response.startswith("```"):
-            cleaned_response = cleaned_response[3:]
-        if cleaned_response.endswith("```"):
-            cleaned_response = cleaned_response[:-3]
-        cleaned_response = cleaned_response.strip()
-        
-        return cleaned_response
+        return AITutorService._clean_json_response(response)
     
     @staticmethod
     def explain_concept(topic: str, level: str = "intermediate"):
@@ -118,7 +107,8 @@ class AITutorService:
             {"role": "user", "content": prompt}
         ]
         
-        return AITutorService.chat_completion(messages, temperature=0.7)
+        response = AITutorService.chat_completion(messages, temperature=0.7)
+        return AITutorService._clean_json_response(response)
     
     @staticmethod
     def generate_mindmap(topic: str):
@@ -145,20 +135,22 @@ class AITutorService:
             ]
         }}
         
-        Include 3-5 main topics, each with 2-4 subtopics. Make summaries educational and comprehensive."""
+        Include 3-5 main topics, each with 2-4 subtopics. Make summaries educational and comprehensive. 
+        CRITICAL: Use a DIFFERENT vibrant, beautiful hex color (e.g., "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#06B6D4") for EACH main topic's "color" field so the mind map is visually stunning."""
         
         messages = [
-            {"role": "system", "content": "You are an expert educator creating mind maps. Respond with valid JSON only."},
+            {"role": "system", "content": "You are an expert educator creating mind maps. Respond with valid JSON only. You must include varied, vibrant colors for the topics."},
             {"role": "user", "content": prompt}
         ]
         
-        return AITutorService.chat_completion(messages, temperature=0.8, max_tokens=2000)
+        response = AITutorService.chat_completion(messages, temperature=0.8, max_tokens=2000)
+        return AITutorService._clean_json_response(response)
     
     @staticmethod
     def generate_notes(topic: str, subject: str = None, level: str = "intermediate"):
         """Generate comprehensive study notes using AI"""
         subject_text = f" for {subject}" if subject else ""
-        prompt = f"""Generate comprehensive study notes on the topic: {topic}{subject_text}
+        prompt = f"""Generate extremely comprehensive, highly detailed, and exhaustive study notes on the topic: {topic}{subject_text}
         
         Current level: {level}
         
@@ -166,14 +158,14 @@ class AITutorService:
         {{
             "title": "Topic Title",
             "summary": "Brief summary (2-3 sentences)",
-            "content": "Detailed content explaining the topic thoroughly",
-            "keyPoints": ["Key point 1", "Key point 2", "Key point 3", "Key point 4"],
-            "examples": ["Example 1", "Example 2"],
+            "content": "A very long, extremely detailed, and comprehensive multi-paragraph explanation covering all major aspects, definitions, core theories, and advanced nuances of the topic. Do not summarize; explain it as if writing a full textbook chapter.",
+            "keyPoints": ["Extremely specific key point 1", "Extremely specific key point 2", "Key point 3", "Key point 4", "Key point 5", "Key point 6"],
+            "examples": ["Detailed example 1 explaining application", "Detailed example 2 with context"],
             "formulas": ["Formula 1", "Formula 2"] (if applicable, otherwise empty array),
-            "relatedTopics": ["Related topic 1", "Related topic 2"]
+            "relatedTopics": ["Related topic 1", "Related topic 2", "Related topic 3"]
         }}
         
-        Make the notes educational, clear, and comprehensive. Ensure the JSON is valid."""
+        Make the notes educational, exhaustive, clear, and comprehensive. Ensure the JSON is valid."""
         
         messages = [
             {"role": "system", "content": "You are an expert educator creating comprehensive study notes. Always respond with valid JSON only."},
@@ -181,27 +173,28 @@ class AITutorService:
         ]
         
         response = AITutorService.chat_completion(messages, temperature=0.7, max_tokens=2000)
-        
-        # Clean response - remove markdown code blocks if present
-        cleaned_response = response.strip()
-        if cleaned_response.startswith("```json"):
-            cleaned_response = cleaned_response[7:]
-        if cleaned_response.startswith("```"):
-            cleaned_response = cleaned_response[3:]
-        if cleaned_response.endswith("```"):
-            cleaned_response = cleaned_response[:-3]
-        cleaned_response = cleaned_response.strip()
-        
-        return cleaned_response
+        return AITutorService._clean_json_response(response)
     
     @staticmethod
     def _clean_json_response(response: str) -> str:
         """Helper method to clean JSON responses from markdown formatting"""
         cleaned = response.strip()
-        if cleaned.startswith("```json"):
-            cleaned = cleaned[7:]
-        elif cleaned.startswith("```"):
-            cleaned = cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        return cleaned.strip()
+        
+        # Try to find the JSON block using start/end characters
+        start_idx = -1
+        end_idx = -1
+        
+        for i, char in enumerate(cleaned):
+            if char in ['{', '[']:
+                start_idx = i
+                break
+                
+        for i in range(len(cleaned) - 1, -1, -1):
+            if cleaned[i] in ['}', ']']:
+                end_idx = i
+                break
+                
+        if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+            return cleaned[start_idx:end_idx + 1]
+            
+        return cleaned

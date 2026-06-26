@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Sparkles, Mail, Lock, User, Chrome, Loader2 } from "lucide-react";
+import { Sparkles, Mail, Lock, User, Chrome, Loader2, ShieldCheck } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { ObsidianCore } from "./ObsidianCore";
 import { authAPI } from "../utils/api";
+import { checkPasswordStrength, sanitizeInput, isValidEmail, type PasswordStrength } from "../utils/security";
 
 interface LoginScreenProps {
   onLogin: (user: { id?: string; name: string; email: string; isNewUser?: boolean; total_xp?: number; current_streak?: number }) => void;
@@ -22,16 +23,44 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
 
+  // Lockout countdown state
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
+  // Password strength
+  const [pwStrength, setPwStrength] = useState<PasswordStrength | null>(null);
+
+  // Countdown timer for lockout
+  useEffect(() => {
+    if (lockoutSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutSeconds(s => {
+        if (s <= 1) { clearInterval(timer); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutSeconds]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail || !loginPassword) {
       toast.error("Please fill in all fields");
       return;
     }
+    if (!isValidEmail(loginEmail)) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
+    if (lockoutSeconds > 0) {
+      toast.error(`Account locked. Try again in ${lockoutSeconds}s`);
+      return;
+    }
 
     setIsLoading(true);
     try {
-      const response = await authAPI.login(loginEmail, loginPassword);
+      const response = await authAPI.login(
+        sanitizeInput(loginEmail.toLowerCase()),
+        loginPassword,
+      );
       onLogin({
         id: response.user.id,
         name: response.user.name || loginEmail.split("@")[0],
@@ -41,7 +70,15 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       toast.success("Login successful!");
     } catch (error: any) {
       console.error("Login error:", error);
-      toast.error(error.message || "Login failed. Please check your credentials.");
+      const msg: string = error.message || "Login failed. Please check your credentials.";
+      // Extract lockout duration from backend message e.g. "locked ... in 847 seconds"
+      const lockMatch = msg.match(/(\d+)\s+second/);
+      if (lockMatch) {
+        setLockoutSeconds(parseInt(lockMatch[1], 10));
+        toast.error(`Account locked. Try again in ${lockMatch[1]}s.`);
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -53,15 +90,24 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       toast.error("Please fill in all fields");
       return;
     }
+    if (!isValidEmail(signupEmail)) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
 
-    if (signupPassword.length < 6) {
-      toast.error("Password must be at least 6 characters");
+    const strength = checkPasswordStrength(signupPassword);
+    if (strength.errors.length > 0) {
+      toast.error("Password does not meet requirements: " + strength.errors[0]);
       return;
     }
 
     setIsSigningUp(true);
     try {
-      const response = await authAPI.signup(signupEmail, signupPassword, signupName);
+      const response = await authAPI.signup(
+        sanitizeInput(signupEmail.toLowerCase()),
+        signupPassword,
+        sanitizeInput(signupName),
+      );
       onLogin({
         id: response.user.id,
         name: response.user.name || signupName,
@@ -177,13 +223,18 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
                 <Button 
                   type="submit" 
-                  disabled={isLoading}
+                  disabled={isLoading || lockoutSeconds > 0}
                   className="w-full gradient-blue hover:scale-105 hover:shadow-[0_0_30px_rgba(59,130,246,0.4)] transition-all duration-300 disabled:opacity-50"
                 >
                   {isLoading ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Signing In...
+                    </>
+                  ) : lockoutSeconds > 0 ? (
+                    <>
+                      <ShieldCheck className="w-4 h-4 mr-2" />
+                      Locked ({lockoutSeconds}s)
                     </>
                   ) : (
                     <>
@@ -237,10 +288,39 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                       type="password"
                       placeholder="••••••••"
                       value={signupPassword}
-                      onChange={(e) => setSignupPassword(e.target.value)}
+                      onChange={(e) => {
+                        setSignupPassword(e.target.value);
+                        setPwStrength(e.target.value ? checkPasswordStrength(e.target.value) : null);
+                      }}
                       className="pl-10 bg-input-background border-white/10"
                     />
                   </div>
+                  {/* Password strength bar */}
+                  {pwStrength && (
+                    <div className="mt-2 space-y-1">
+                      <div className="flex gap-1">
+                        {[1,2,3,4,5].map(i => (
+                          <div
+                            key={i}
+                            className="h-1 flex-1 rounded-full transition-all duration-300"
+                            style={{ background: i <= pwStrength.score ? pwStrength.color : 'rgba(255,255,255,0.1)' }}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-xs" style={{ color: pwStrength.color }}>
+                        {pwStrength.label}
+                      </p>
+                      {pwStrength.errors.length > 0 && (
+                        <ul className="text-xs text-muted-foreground space-y-0.5">
+                          {pwStrength.errors.map((e, i) => (
+                            <li key={i} className="flex items-center gap-1">
+                              <span className="text-red-400">✗</span> {e}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <Button 

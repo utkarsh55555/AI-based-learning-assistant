@@ -1,9 +1,13 @@
 import { toast } from "sonner";
+import { getCsrfToken, clearSession as secClearSession, isTokenValid } from './security';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
 let useMockApi = false;
 let toastShown = false;
+
+// HTTP methods that require a CSRF token
+const CSRF_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 function showMockWarning() {
   if (!toastShown) {
@@ -22,11 +26,15 @@ function showMockWarning() {
 // Get auth token from localStorage
 const getAuthToken = (): string | null => {
   const token = localStorage.getItem('access_token');
-  if (token && token.split('.').length !== 3 && token !== 'mock-access-token') {
-    console.warn('Invalid token format detected, clearing token');
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
+  // If they have the mock token, clear it so they are forced to log in with the real backend
+  if (token === 'mock-access-token') {
+    console.warn('Mock token detected, clearing session to connect to real backend');
+    secClearSession();
+    return null;
+  }
+  if (token && !isTokenValid(token)) {
+    console.warn('Invalid token format detected, clearing session');
+    secClearSession();
     return null;
   }
   return token;
@@ -38,6 +46,8 @@ async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = getAuthToken();
+  const method = (options.method || 'GET').toUpperCase();
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...options.headers as Record<string, string>,
@@ -45,6 +55,16 @@ async function apiRequest<T>(
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Attach CSRF token for all state-changing requests
+  if (CSRF_METHODS.has(method) && !useMockApi) {
+    try {
+      const csrfToken = await getCsrfToken();
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+    } catch {
+      // Non-fatal — backend will reject if CSRF is strictly required
+    }
   }
 
   if (useMockApi) {
@@ -60,12 +80,30 @@ async function apiRequest<T>(
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Request failed' }));
       
-      // If auth error, clear tokens and redirect to login
+      // If auth error, clear tokens and CSRF cache
       if (response.status === 401 || (error.message && error.message.includes('token'))) {
-        console.warn('Auth error detected, clearing tokens');
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('user');
+        console.warn('Auth error detected, clearing session');
+        secClearSession();
+      }
+      
+      // If backend returned 500 due to upstream connectivity failure (e.g. Supabase DNS/connection error),
+      // fall back to mock API so the app remains usable in demo mode.
+      if (response.status === 500) {
+        const msg = (error.message || '').toLowerCase();
+        const isUpstreamConnectivityError =
+          msg.includes('getaddrinfo') ||
+          msg.includes('connection refused') ||
+          msg.includes('name or service not known') ||
+          msg.includes('timeout') ||
+          msg.includes('unreachable') ||
+          msg.includes('supabase') && (msg.includes('failed') || msg.includes('error'));
+        
+        if (isUpstreamConnectivityError) {
+          console.warn(`Backend upstream service unreachable: ${error.message}. Switching to client-side Mock API.`);
+          useMockApi = true;
+          showMockWarning();
+          return handleMockRequest<T>(endpoint, options);
+        }
       }
       
       throw new Error(error.message || `HTTP error! status: ${response.status}`);

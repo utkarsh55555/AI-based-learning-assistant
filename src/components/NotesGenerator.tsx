@@ -64,6 +64,14 @@ export function NotesGenerator() {
   // Load notes on mount
   useEffect(() => {
     loadNotes();
+    
+    // Check for auto-generation redirect from Mind Maps
+    const pendingTopic = sessionStorage.getItem('pendingNotesTopic');
+    if (pendingTopic) {
+      setNewNoteTopic(pendingTopic);
+      sessionStorage.removeItem('pendingNotesTopic');
+      setTimeout(() => generateNotes(pendingTopic), 100);
+    }
   }, []);
 
   const loadNotes = async () => {
@@ -92,8 +100,9 @@ export function NotesGenerator() {
     }
   };
 
-  const generateNotes = async () => {
-    if (!newNoteTopic.trim()) {
+  const generateNotes = async (overrideTopic?: string) => {
+    const topicToUse = overrideTopic || newNoteTopic;
+    if (!topicToUse.trim()) {
       toast.error("Please enter a topic");
       return;
     }
@@ -102,12 +111,12 @@ export function NotesGenerator() {
     toast.info("🤖 AI is generating your notes...");
 
     try {
-      const result = await notesAPI.generate(newNoteTopic, newNoteSubject, "intermediate");
+      const result = await notesAPI.generate(topicToUse, newNoteSubject, "intermediate");
       const aiData = result.ai_data;
       
       const newNote: Note = {
         id: notes.length + 1,
-        title: aiData.title || newNoteTopic,
+        title: aiData.title || topicToUse,
         subject: newNoteSubject,
         content: aiData.content,
         summary: aiData.summary,
@@ -153,7 +162,30 @@ export function NotesGenerator() {
   };
 
   const downloadNote = (note: Note) => {
-    toast.success(`📥 Downloading "${note.title}"...`);
+    const textContent = `Title: ${note.title}
+Subject: ${note.subject}
+Date: ${note.createdAt}
+
+=== SUMMARY ===
+${note.summary}
+
+=== KEY POINTS ===
+${note.keyPoints.map(point => `- ${point}`).join('\n')}
+
+=== DETAILED NOTES ===
+${note.content}
+`;
+    const blob = new Blob([textContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${note.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_notes.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    toast.success(`📥 Downloaded "${note.title}" successfully!`);
   };
 
   return (

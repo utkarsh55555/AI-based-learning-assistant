@@ -85,7 +85,7 @@ class SupabaseService:
                    order_by: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
         """Get multiple records with optional filters"""
         _check_supabase_client()
-        query = supabase.table(table).select("*")
+        query = get_supabase().table(table).select("*")
         
         if filters:
             for key, value in filters.items():
@@ -116,19 +116,19 @@ class SupabaseService:
             result = admin_client.table(table).update(data).eq(id_column, id).execute()
         else:
             _check_supabase_client()
-            result = supabase.table(table).update(data).eq(id_column, id).execute()
+            result = get_supabase().table(table).update(data).eq(id_column, id).execute()
         return result.data[0] if result.data else None
     
     @staticmethod
     def delete_record(table: str, id: str, id_column: str = "id") -> bool:
         """Delete a record"""
         _check_supabase_client()
-        result = supabase.table(table).delete().eq(id_column, id).execute()
+        result = get_supabase().table(table).delete().eq(id_column, id).execute()
         return len(result.data) > 0
     
     @staticmethod
     def query_records(table: str, query_builder) -> List[Dict]:
         """Execute a custom query"""
         _check_supabase_client()
-        result = query_builder(supabase.table(table)).execute()
+        result = query_builder(get_supabase().table(table)).execute()
         return result.data

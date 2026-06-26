@@ -1,11 +1,11 @@
-from supabase_client import supabase
+from supabase_client import get_supabase
 from datetime import datetime, timedelta
 
 class StreakService:
     @staticmethod
     def update_streak(user_id: str) -> dict:
         """Update user's study streak"""
-        result = supabase.table("user_profiles").select("last_activity_date, current_streak").eq("user_id", user_id).single().execute()
+        result = get_supabase().table("user_profiles").select("last_activity_date, current_streak").eq("user_id", user_id).single().execute()
         
         if not result.data:
             return {"current_streak": 0, "streak_updated": False}
@@ -37,7 +37,7 @@ class StreakService:
                 streak_updated = True
         
         # Update database
-        supabase.table("user_profiles").update({
+        get_supabase().table("user_profiles").update({
             "current_streak": new_streak,
             "last_activity_date": today.isoformat()
         }).eq("user_id", user_id).execute()
@@ -51,7 +51,7 @@ class StreakService:
     @staticmethod
     def get_streak_info(user_id: str) -> dict:
         """Get user's streak information"""
-        result = supabase.table("user_profiles").select(
+        result = get_supabase().table("user_profiles").select(
             "current_streak, longest_streak, last_activity_date"
         ).eq("user_id", user_id).single().execute()
         

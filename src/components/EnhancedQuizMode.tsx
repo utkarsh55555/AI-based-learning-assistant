@@ -1,3 +1,5 @@
+
+
 import { useState, useEffect, useRef } from "react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -146,6 +148,24 @@ export function EnhancedQuizMode() {
     };
   }, [cameraStream]);
 
+  // Attach camera stream to video element when it renders
+  useEffect(() => {
+    if (isStarted && cameraStream && videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+    }
+  }, [isStarted, cameraStream]);
+
+  // Handle auto-generation from external redirects (e.g., Mind Maps)
+  useEffect(() => {
+    const pendingTopic = sessionStorage.getItem('pendingQuizTopic');
+    if (pendingTopic) {
+      setQuizTopic(pendingTopic);
+      sessionStorage.removeItem('pendingQuizTopic');
+      // Give state a moment to settle, then generate
+      setTimeout(() => generateQuiz(pendingTopic), 100);
+    }
+  }, []);
+
   // Stop camera when quiz completes
   useEffect(() => {
     if (quizComplete && cameraStream) {
@@ -177,8 +197,9 @@ export function EnhancedQuizMode() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const generateQuiz = async () => {
-    if (!quizTopic.trim()) {
+  const generateQuiz = async (overrideTopic?: string) => {
+    const topicToUse = overrideTopic || quizTopic;
+    if (!topicToUse.trim()) {
       toast.error("Please enter a topic for the quiz");
       return;
     }
@@ -190,7 +211,7 @@ export function EnhancedQuizMode() {
       const actualDifficulty = difficulty === "adaptive" ? "medium" : difficulty;
       const numQuestions = 5;
       
-      const quiz = await quizAPI.generate(quizTopic, actualDifficulty, numQuestions);
+      const quiz = await quizAPI.generate(topicToUse, actualDifficulty, numQuestions);
       
       // Parse questions from the quiz
       const parsedQuestions: Question[] = quiz.questions.map((q: any, index: number) => ({
@@ -221,19 +242,17 @@ export function EnhancedQuizMode() {
       return;
     }
 
-    // For practice mode, camera is optional
-    if (quizMode === "practice") {
-      setIsStarted(true);
-      setStartTime(Date.now());
-      toast.success("Quiz started!");
-      return;
-    }
-
-    // For timed and rapid modes, require camera
+    // Require camera for ALL modes before starting
     const cameraGranted = await requestCameraAccess();
     if (cameraGranted) {
       setIsStarted(true);
       setStartTime(Date.now());
+      if (quizMode === "practice") {
+        toast.success("Quiz started!");
+      }
+    } else {
+      // If camera access is denied, we do not start the quiz
+      toast.error("Camera access is mandatory to start the quiz.");
     }
   };
 
@@ -360,18 +379,16 @@ export function EnhancedQuizMode() {
               </p>
             </div>
 
-            {/* Camera Permission Alert - Only show for timed and rapid modes */}
-            {quizMode !== "practice" && (
-              <Alert className="mb-6 bg-blue-600/10 border-blue-600/30">
-                <Camera className="w-4 h-4" />
-                <AlertDescription className="ml-2">
-                  <span className="text-blue-400">Camera monitoring required:</span> This quiz mode requires camera access for proctoring purposes. Your camera will be active during the entire quiz.
-                </AlertDescription>
-              </Alert>
-            )}
+            {/* Camera Permission Alert - Show for all modes */}
+            <Alert className="mb-6 bg-blue-600/10 border-blue-600/30">
+              <Camera className="w-4 h-4" />
+              <AlertDescription className="ml-2">
+                <span className="text-blue-400">Camera monitoring required:</span> This quiz mode requires camera access for proctoring purposes. Your camera will be active during the entire quiz.
+              </AlertDescription>
+            </Alert>
 
-            {/* Camera Error Alert - Only show for timed and rapid modes */}
-            {cameraError && cameraPermission === "denied" && quizMode !== "practice" && (
+            {/* Camera Error Alert - Show for all modes */}
+            {cameraError && cameraPermission === "denied" && (
               <Alert className="mb-6 bg-red-600/10 border-red-600/30">
                 <AlertTriangle className="w-4 h-4 text-red-400" />
                 <AlertDescription className="ml-2 text-red-400">
@@ -494,10 +511,7 @@ export function EnhancedQuizMode() {
                 className="w-full gradient-blue hover:opacity-90 py-6 neon-border pulse-glow disabled:opacity-50"
               >
                 <Camera className="w-5 h-5 mr-2" />
-                {quizMode === "practice" ? 
-                  (questions.length > 0 ? "Start Quiz" : "Generate Quiz First") :
-                  (questions.length > 0 ? "Start Quiz with Camera" : "Generate Quiz First")
-                }
+                {questions.length > 0 ? "Start Quiz with Camera" : "Generate Quiz First"}
               </Button>
             </div>
           </Card>

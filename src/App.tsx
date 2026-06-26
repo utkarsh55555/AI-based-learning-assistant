@@ -59,7 +59,7 @@ export default function App() {
     const checkAuth = async () => {
       const token = localStorage.getItem('access_token');
       const storedUser = localStorage.getItem('user');
-      
+
       if (token && storedUser) {
         try {
           const currentUser = await authAPI.getCurrentUser();
@@ -102,7 +102,7 @@ export default function App() {
   const handleLogin = (userData: User) => {
     setUser(userData);
     setCurrentView("dashboard");
-    
+
     // Welcome message with user's name - different for new vs returning users
     setTimeout(() => {
       if (userData.isNewUser) {
@@ -151,7 +151,7 @@ export default function App() {
         <div className="size-full flex items-center justify-center relative overflow-hidden">
           {/* Stealth Blue Gradient Background */}
           <div className="absolute inset-0 bg-gradient-to-br from-[#0A0A0A] via-[#0F1419] to-[#0A0A0A]" />
-          
+
           {/* Electric Blue Floating Particles */}
           <div className="absolute inset-0">
             {[...Array(20)].map((_, i) => (
@@ -259,7 +259,7 @@ export default function App() {
               transition={{ delay: 1 }}
               className="text-sm text-muted-foreground"
             >
-              Built by Team Obsidian ✨
+              Built by Utkarsh ✨
             </motion.p>
           </motion.div>
         </div>
@@ -312,11 +312,10 @@ export default function App() {
                     key={item.id}
                     onClick={() => setCurrentView(item.id)}
                     variant={currentView === item.id ? "default" : "ghost"}
-                    className={`w-full justify-start transition-all ${
-                      currentView === item.id
+                    className={`w-full justify-start transition-all ${currentView === item.id
                         ? "gradient-blue hover:opacity-90 neon-border"
                         : "hover:bg-blue-950/30 hover:border-blue-800/30 border border-transparent"
-                    }`}
+                      }`}
                   >
                     <item.icon className="w-4 h-4 mr-3" />
                     {item.label}
@@ -336,10 +335,10 @@ export default function App() {
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">2,450 / 4,000 XP</p>
                 </div>
-                
+
                 <div className="flex gap-2">
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     className="flex-1 hover:bg-white/5 justify-start gap-2 p-2"
                     onClick={() => setCurrentView("profile")}
                   >
@@ -352,15 +351,15 @@ export default function App() {
                     </div>
                     <span className="truncate">{user.name}</span>
                   </Button>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     className="px-3 hover:bg-white/5"
                     onClick={() => toast.info("Notifications coming soon!")}
                   >
                     <Bell className="w-4 h-4" />
                   </Button>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     className="px-3 hover:bg-white/5"
                     onClick={handleLogout}
                   >
@@ -431,7 +430,7 @@ export default function App() {
                 {currentView === "quiz" && <EnhancedQuizMode />}
                 {currentView === "planner" && <StudyPlanner />}
                 {currentView === "notes" && <NotesGenerator />}
-                {currentView === "mindmap" && <MindMapBuilder />}
+                {currentView === "mindmap" && <MindMapBuilder onNavigate={setCurrentView} />}
                 {currentView === "leaderboard" && <Leaderboard />}
                 {currentView === "timer" && <StudyTimer />}
                 {currentView === "profile" && <ProfileSection userName={user?.name} userEmail={user?.email} userAvatar={userAvatar} onAvatarChange={setUserAvatar} />}

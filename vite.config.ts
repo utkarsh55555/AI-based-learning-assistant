@@ -56,5 +56,18 @@
     server: {
       port: 3000,
       open: true,
+      proxy: {
+        // Proxy /api requests to Flask backend in development
+        '/api': {
+          target: process.env.VITE_API_URL || 'http://127.0.0.1:5000',
+          changeOrigin: true,
+          secure: false,
+        },
+        '/health': {
+          target: process.env.VITE_API_URL || 'http://127.0.0.1:5000',
+          changeOrigin: true,
+          secure: false,
+        },
+      },
     },
   });

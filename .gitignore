@@ -3,6 +3,11 @@ node_modules/
 dist/
 build/
 .env
+# Allow the example file
+!.env.example
+
+# Vercel
+.vercel/
 .env.local
 .env.development.local
 .env.test.local

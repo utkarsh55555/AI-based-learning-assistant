@@ -89,7 +89,16 @@ class AuthController:
             return None
             
         except Exception as e:
-            raise Exception(f"Login error: {str(e)}")
+            error_msg = str(e)
+            # Detect upstream connectivity issues (DNS, connection refused, etc.)
+            connectivity_indicators = ['getaddrinfo', 'connection refused', 'name or service not known', 'timed out', 'unreachable']
+            if any(indicator in error_msg.lower() for indicator in connectivity_indicators):
+                print(f"[ERROR] Supabase connection failed during login: {error_msg}")
+                raise Exception(
+                    f"Login error: getaddrinfo failed - Supabase service is unreachable. "
+                    f"Please check your SUPABASE_URL in .env or your internet connection."
+                )
+            raise Exception(f"Login error: {error_msg}")
     
     @staticmethod
     def logout(access_token: str):

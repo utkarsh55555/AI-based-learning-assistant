@@ -35,12 +35,13 @@ def get_supabase_admin_client() -> Client:
         # Debug output should never break startup
         pass
 
-    # Verify the service key looks valid (should start with 'eyJ' for JWT)
-    if not settings.SUPABASE_SERVICE_KEY.startswith('eyJ'):
+    # Verify the service key looks valid (accepts both legacy JWT 'eyJ' and new 'sb_secret_' format)
+    valid_prefixes = ('eyJ', 'sb_secret_')
+    if not settings.SUPABASE_SERVICE_KEY.startswith(valid_prefixes):
         raise ValueError(
             "SUPABASE_SERVICE_KEY appears to be invalid. "
-            "Service role keys should be JWT tokens starting with 'eyJ'. "
-            "Make sure you're using the 'service_role' key from Supabase Project Settings → API, not the 'anon' key."
+            "Service role keys should start with 'eyJ' (legacy JWT) or 'sb_secret_' (new format). "
+            "Make sure you're using the 'service_role' / 'secret' key from Supabase Project Settings → API Keys."
         )
 
     client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
