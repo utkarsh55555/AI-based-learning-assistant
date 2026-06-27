@@ -86,37 +86,35 @@ async function apiRequest<T>(
         secClearSession();
       }
       
-      // If backend returned 500 due to upstream connectivity failure (e.g. Supabase DNS/connection error),
-      // fall back to mock API so the app remains usable in demo mode.
+      // Only fall back to mock API for true DNS/infrastructure failures, NOT for
+      // AI service errors (timeouts, rate limits, etc.) which should show as errors.
       if (response.status === 500) {
         const msg = (error.message || '').toLowerCase();
-        const isUpstreamConnectivityError =
+        const isTrueInfraFailure =
           msg.includes('getaddrinfo') ||
-          msg.includes('connection refused') ||
           msg.includes('name or service not known') ||
-          msg.includes('timeout') ||
-          msg.includes('unreachable') ||
-          msg.includes('supabase') && (msg.includes('failed') || msg.includes('error'));
+          (msg.includes('supabase') && msg.includes('connection'));
         
-        if (isUpstreamConnectivityError) {
-          console.warn(`Backend upstream service unreachable: ${error.message}. Switching to client-side Mock API.`);
+        if (isTrueInfraFailure) {
+          console.warn(`Backend infrastructure unreachable: ${error.message}. Switching to client-side Mock API.`);
           useMockApi = true;
           showMockWarning();
           return handleMockRequest<T>(endpoint, options);
         }
       }
       
-      throw new Error(error.message || `HTTP error! status: ${response.status}`);
+      throw new Error(error.error || error.message || `HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
     return data.data || data;
   } catch (error: any) {
-    // Handle network errors (backend not running, CORS, etc.)
+    // Only handle true network failures (server completely unreachable)
+    // NOT application-level errors that happen to contain 'failed' in the message
     const isNetworkError = error.name === 'TypeError' && (
       error.message.toLowerCase().includes('fetch') || 
-      error.message.toLowerCase().includes('network') ||
-      error.message.toLowerCase().includes('failed')
+      error.message.toLowerCase().includes('networkerror') ||
+      error.message === 'Failed to fetch'
     );
     
     if (isNetworkError) {
