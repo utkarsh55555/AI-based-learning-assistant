@@ -72,7 +72,7 @@ export default function App() {
               total_xp: currentUser.user.total_xp,
               current_streak: currentUser.user.current_streak
             });
-            setCurrentView("dashboard");
+            // setCurrentView("dashboard"); // Prevent skipping landing page
           }
         } catch (error) {
           // Token invalid or expired, clear storage
@@ -145,7 +145,7 @@ export default function App() {
   };
 
   // Landing Page
-  if (currentView === "landing" && !user) {
+  if (currentView === "landing") {
     return (
       <>
         <div className="size-full flex items-center justify-center relative overflow-hidden">
@@ -246,7 +246,7 @@ export default function App() {
                 }}
                 className="gradient-blue hover:opacity-90 px-8 py-6 text-lg pulse-glow neon-border relative overflow-hidden group"
               >
-                <span className="relative z-10 font-semibold">Start Learning</span>
+                <span className="relative z-10 font-semibold">{user ? "Go to Dashboard" : "Start Learning"}</span>
                 <Sparkles className="w-5 h-5 ml-2 relative z-10" />
                 <div className="absolute inset-0 shimmer opacity-0 group-hover:opacity-100 transition-opacity" />
               </Button>

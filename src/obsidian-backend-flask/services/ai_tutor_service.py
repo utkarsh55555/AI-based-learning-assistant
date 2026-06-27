@@ -161,7 +161,7 @@ class AITutorService:
             "content": "A very long, extremely detailed, and comprehensive multi-paragraph explanation covering all major aspects, definitions, core theories, and advanced nuances of the topic. Do not summarize; explain it as if writing a full textbook chapter.",
             "keyPoints": ["Extremely specific key point 1", "Extremely specific key point 2", "Key point 3", "Key point 4", "Key point 5", "Key point 6"],
             "examples": ["Detailed example 1 explaining application", "Detailed example 2 with context"],
-            "formulas": ["Formula 1", "Formula 2"] (if applicable, otherwise empty array),
+            "formulas": ["Formula 1", "Formula 2"],
             "relatedTopics": ["Related topic 1", "Related topic 2", "Related topic 3"]
         }}
         

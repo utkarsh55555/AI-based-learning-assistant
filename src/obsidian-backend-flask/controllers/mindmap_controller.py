@@ -40,7 +40,11 @@ class MindMapController:
                 "ai_generated": True
             }
             
-            mindmap = SupabaseService.create_record("mindmaps", db_data)
+            try:
+                mindmap = SupabaseService.create_record("mindmaps", db_data)
+            except Exception as e:
+                print(f"[WARNING] Failed to save AI-generated mindmap: {e}")
+                mindmap = {"id": "temp-mindmap-id", **db_data}
             
             # Award XP
             XPService.award_xp(user_id, "mindmap_created")
