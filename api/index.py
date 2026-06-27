@@ -57,18 +57,20 @@ def extract_json(text: str, fallback):
     """Safely extract the first JSON object or array from an LLM response."""
     try:
         text = text.strip()
-        # Try array first
-        s = text.find('[')
-        if s != -1:
-            e = text.rfind(']')
-            if e != -1:
-                return json.loads(text[s:e+1])
-        # Then object
-        s = text.find('{')
-        if s != -1:
+        s_obj = text.find('{')
+        s_arr = text.find('[')
+        
+        is_obj = s_obj != -1 and (s_arr == -1 or s_obj < s_arr)
+        is_arr = s_arr != -1 and (s_obj == -1 or s_arr < s_obj)
+        
+        if is_obj:
             e = text.rfind('}')
             if e != -1:
-                return json.loads(text[s:e+1])
+                return json.loads(text[s_obj:e+1])
+        elif is_arr:
+            e = text.rfind(']')
+            if e != -1:
+                return json.loads(text[s_arr:e+1])
     except Exception:
         pass
     return fallback
@@ -533,17 +535,20 @@ def notes_generate():
         topic   = data.get('topic', '')
         subject = data.get('subject', 'General')
 
-        prompt = f"""Create comprehensive study notes for: "{topic}" (Subject: {subject}).
-Return ONLY valid JSON, no text before or after:
-{{
-  "title": "Clear title for these notes",
-  "summary": "One paragraph summary of the topic",
-  "content": "Full markdown study notes with headers, bullet points, and examples",
-  "keyPoints": ["Key point 1", "Key point 2", "Key point 3", "Key point 4"],
-  "examples": ["Example 1", "Example 2"],
-  "formulas": ["Formula or rule 1 (if applicable)"],
-  "relatedTopics": ["Related topic 1", "Related topic 2", "Related topic 3"]
-}}"""
+        prompt = f"""Generate extremely comprehensive, highly detailed, and exhaustive study notes on the topic: {topic} (Subject: {subject}).
+        
+        Return a JSON object with this exact structure:
+        {{
+            "title": "Topic Title",
+            "summary": "Brief summary (2-3 sentences)",
+            "content": "A very long, extremely detailed, and comprehensive multi-paragraph explanation covering all major aspects, definitions, core theories, and advanced nuances of the topic. Do not summarize; explain it as if writing a full textbook chapter.",
+            "keyPoints": ["Extremely specific key point 1", "Extremely specific key point 2", "Key point 3", "Key point 4", "Key point 5", "Key point 6"],
+            "examples": ["Detailed example 1 explaining application", "Detailed example 2 with context"],
+            "formulas": ["Formula 1", "Formula 2"],
+            "relatedTopics": ["Related topic 1", "Related topic 2", "Related topic 3"]
+        }}
+        
+        Make the notes educational, exhaustive, clear, and comprehensive. Ensure the JSON is valid."""
 
         raw     = ai_complete(prompt, 2048)
         ai_data = extract_json(raw, {})
@@ -664,22 +669,30 @@ def mindmap_generate():
         data  = request.get_json() or {}
         topic = data.get('topic', 'General')
 
-        prompt = f"""Create a rich mind map for the topic: "{topic}".
-Return ONLY valid JSON, no text before or after:
-{{
-  "topics": [
-    {{"id": "root", "label": "{topic}", "x": 400, "y": 300, "isRoot": true, "description": "Central concept of {topic}"}},
-    {{"id": "n1", "parentId": "root", "label": "Core Concepts", "x": 180, "y": 160, "description": "Fundamental ideas and definitions"}},
-    {{"id": "n1a", "parentId": "n1", "label": "Definition", "x": 80, "y": 80, "description": "What {topic} means"}},
-    {{"id": "n1b", "parentId": "n1", "label": "Key Principles", "x": 80, "y": 200, "description": "The main rules or laws"}},
-    {{"id": "n2", "parentId": "root", "label": "Applications", "x": 620, "y": 160, "description": "Real-world uses of {topic}"}},
-    {{"id": "n2a", "parentId": "n2", "label": "Industry Use", "x": 720, "y": 80, "description": "How professionals use this"}},
-    {{"id": "n2b", "parentId": "n2", "label": "Examples", "x": 720, "y": 200, "description": "Concrete examples"}},
-    {{"id": "n3", "parentId": "root", "label": "Challenges", "x": 180, "y": 440, "description": "Common difficulties"}},
-    {{"id": "n4", "parentId": "root", "label": "Future Trends", "x": 620, "y": 440, "description": "Where {topic} is heading"}}
-  ]
-}}
-Replace all placeholder text with REAL, specific content about "{topic}"."""
+        prompt = f"""Create a comprehensive mind map for the topic: {topic}
+        
+        Return a JSON object with this structure:
+        {{
+            "title": "{topic}",
+            "topics": [
+                {{
+                    "id": "unique-id",
+                    "label": "Topic Name",
+                    "color": "#3B82F6",
+                    "summary": "Detailed summary of this topic",
+                    "subtopics": [
+                        {{
+                            "id": "sub-unique-id",
+                            "label": "Subtopic Name",
+                            "summary": "Detailed summary"
+                        }}
+                    ]
+                }}
+            ]
+        }}
+        
+        Include 3-5 main topics, each with 2-4 subtopics. Make summaries educational and comprehensive. 
+        CRITICAL: Use a DIFFERENT vibrant, beautiful hex color (e.g., "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#06B6D4") for EACH main topic's "color" field so the mind map is visually stunning."""
 
         raw    = ai_complete(prompt, 1500)
         parsed = extract_json(raw, {"topics": []})
@@ -688,11 +701,14 @@ Replace all placeholder text with REAL, specific content about "{topic}"."""
         if not topics:
             # Fallback structure
             topics = [
-                {"id": "root", "label": topic, "x": 400, "y": 300, "isRoot": True, "description": f"Central topic: {topic}"},
-                {"id": "n1", "parentId": "root", "label": "Core Concepts", "x": 180, "y": 160, "description": "Fundamental principles"},
-                {"id": "n2", "parentId": "root", "label": "Applications", "x": 620, "y": 160, "description": "Real-world uses"},
-                {"id": "n3", "parentId": "root", "label": "Challenges", "x": 180, "y": 440, "description": "Common difficulties"},
-                {"id": "n4", "parentId": "root", "label": "Future Trends", "x": 620, "y": 440, "description": "Upcoming developments"},
+                {
+                    "id": "t1", "label": "Core Concepts", "color": "#3B82F6", "summary": "Fundamental principles",
+                    "subtopics": [{"id": "st1", "label": "Definition", "summary": "Basic meaning"}]
+                },
+                {
+                    "id": "t2", "label": "Applications", "color": "#10B981", "summary": "Real-world uses",
+                    "subtopics": [{"id": "st2", "label": "Industry Use", "summary": "Professional applications"}]
+                }
             ]
 
         map_id = str(uuid.uuid4())[:8]
