@@ -41,3 +41,5 @@ src/obsidian-backend-flask/__pycache__/
 # Temporary files
 tempCodeRunnerFile*
 *.log
+
+.vercel

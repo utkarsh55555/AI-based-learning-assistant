@@ -197,8 +197,8 @@ export function EnhancedQuizMode() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const generateQuiz = async (overrideTopic?: string) => {
-    const topicToUse = overrideTopic || quizTopic;
+  const generateQuiz = async (overrideTopic?: string | any) => {
+    const topicToUse = typeof overrideTopic === 'string' ? overrideTopic : quizTopic;
     if (!topicToUse.trim()) {
       toast.error("Please enter a topic for the quiz");
       return;

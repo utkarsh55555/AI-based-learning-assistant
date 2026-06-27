@@ -103,8 +103,8 @@ export function NotesGenerator() {
     }
   };
 
-  const generateNotes = async (overrideTopic?: string) => {
-    const topicToUse = overrideTopic || newNoteTopic;
+  const generateNotes = async (overrideTopic?: string | any) => {
+    const topicToUse = typeof overrideTopic === 'string' ? overrideTopic : newNoteTopic;
     if (!topicToUse.trim()) {
       toast.error("Please enter a topic");
       return;
