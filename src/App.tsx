@@ -43,6 +43,7 @@ interface User {
   email: string;
   isNewUser?: boolean;
   avatar?: string;
+  avatar_url?: string;
   total_xp?: number;
   current_streak?: number;
 }
@@ -114,8 +115,8 @@ export default function App() {
       email: profile.email || userData.email 
     });
     
-    if (profile.avatar || userData.avatar) {
-      setUserAvatar(profile.avatar || userData.avatar);
+    if (profile.avatar || userData.avatar || userData.avatar_url) {
+      setUserAvatar(profile.avatar || userData.avatar || userData.avatar_url);
     }
     
     setCurrentView("dashboard");
