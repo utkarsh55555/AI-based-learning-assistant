@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useLocalStorage } from "../utils/useLocalStorage";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -222,8 +223,8 @@ interface MindMapBuilderProps {
 }
 
 export function MindMapBuilder({ onNavigate }: MindMapBuilderProps) {
-  const [mindMaps, setMindMaps] = useState<MindMap[]>(sampleMindMaps);
-  const [selectedMap, setSelectedMap] = useState<MindMap | null>(mindMaps[0]);
+  const [mindMaps, setMindMaps] = useLocalStorage<MindMap[]>("mindMaps", sampleMindMaps);
+  const [selectedMap, setSelectedMap] = useState<MindMap | null>(mindMaps[0] || null);
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [selectedSubtopic, setSelectedSubtopic] = useState<SubTopic | null>(null);
   const [newMapTitle, setNewMapTitle] = useState("");

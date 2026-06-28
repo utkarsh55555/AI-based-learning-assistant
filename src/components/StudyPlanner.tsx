@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocalStorage } from "../utils/useLocalStorage";
 import { Card } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -7,7 +8,6 @@ import { Label } from "./ui/label";
 import { Calendar, Clock, BookOpen, Plus, CheckCircle2, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner@2.0.3";
-import { studyAPI } from "../utils/api";
 
 interface StudyTask {
   id: string;
@@ -20,7 +20,7 @@ interface StudyTask {
 }
 
 export function StudyPlanner() {
-  const [tasks, setTasks] = useState<StudyTask[]>([]);
+  const [tasks, setTasks] = useLocalStorage<StudyTask[]>("studyTasks", []);
   const [newTaskSubject, setNewTaskSubject] = useState("");
   const [newTaskTopic, setNewTaskTopic] = useState("");
   const [newTaskDuration, setNewTaskDuration] = useState("30 min");

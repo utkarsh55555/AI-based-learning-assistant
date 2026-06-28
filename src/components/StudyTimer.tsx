@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocalStorage } from "../utils/useLocalStorage";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Progress } from "./ui/progress";
@@ -39,9 +40,9 @@ export function StudyTimer() {
   const [timeLeft, setTimeLeft] = useState(presets.classic.focus * 60);
   const [initialTime, setInitialTime] = useState(presets.classic.focus * 60);
   const [isRunning, setIsRunning] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [pomodorosCompleted, setPomodorosCompleted] = useState(0);
+  const [sessions, setSessions] = useLocalStorage<Session[]>("studyTimerSessions", []);
+  const [soundEnabled, setSoundEnabled] = useLocalStorage("studyTimerSound", true);
+  const [pomodorosCompleted, setPomodorosCompleted] = useLocalStorage("studyTimerPomodoros", 0);
   const [isCustomDialogOpen, setIsCustomDialogOpen] = useState(false);
   const [hasPlayedMidBreak, setHasPlayedMidBreak] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);

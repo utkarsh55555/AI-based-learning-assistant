@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocalStorage } from "../utils/useLocalStorage";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Badge } from "./ui/badge";
@@ -54,8 +55,8 @@ const mockNotes: Note[] = [
 ];
 
 export function NotesGenerator() {
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [notes, setNotes] = useLocalStorage<Note[]>("generatedNotes", mockNotes);
+  const [selectedNote, setSelectedNote] = useState<Note | null>(notes[0] || null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [newNoteTopic, setNewNoteTopic] = useState("");
   const [newNoteSubject, setNewNoteSubject] = useState("Mathematics");
@@ -90,9 +91,12 @@ export function NotesGenerator() {
           createdAt: note.created_at?.split('T')[0] || new Date().toISOString().split('T')[0]
         };
       });
-      setNotes(formattedNotes);
+      // Only overwrite if we actually fetched notes, to prevent empty backend from wiping local storage
       if (formattedNotes.length > 0) {
+        setNotes(formattedNotes);
         setSelectedNote(formattedNotes[0]);
+      } else if (notes.length > 0 && !selectedNote) {
+        setSelectedNote(notes[0]);
       }
     } catch (error: any) {
       console.error("Error loading notes:", error);
@@ -145,6 +149,13 @@ export function NotesGenerator() {
     const noteToDelete = notes.find(n => n.id === id);
     if (!noteToDelete) return;
 
+    // Optimistically remove from local state
+    const updatedNotes = notes.filter(n => n.id !== id);
+    setNotes(updatedNotes);
+    if (selectedNote?.id === id) {
+      setSelectedNote(updatedNotes[0] || null);
+    }
+    
     try {
       // Find the actual note ID from the database
       const allNotes = await notesAPI.getAll();
@@ -153,16 +164,10 @@ export function NotesGenerator() {
       if (dbNote) {
         await notesAPI.delete(dbNote.id);
       }
-      
-      const updatedNotes = notes.filter(n => n.id !== id);
-      setNotes(updatedNotes);
-      if (selectedNote?.id === id) {
-        setSelectedNote(updatedNotes[0] || null);
-      }
       toast.success("Note deleted successfully");
     } catch (error: any) {
-      console.error("Error deleting note:", error);
-      toast.error("Failed to delete note");
+      console.error("Error deleting note from backend:", error);
+      // Note is still deleted locally which is what the user wants
     }
   };
 
