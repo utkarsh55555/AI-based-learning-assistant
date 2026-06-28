@@ -490,7 +490,7 @@ export function MindMapBuilder({ onNavigate }: MindMapBuilderProps) {
                       <Badge variant="outline" className="text-xs">
                         {map.topics.length} topics
                       </Badge>
-                      <span>{map.createdAt.toLocaleDateString()}</span>
+                      <span>{new Date(map.createdAt).toLocaleDateString()}</span>
                     </div>
                   </Card>
                 </motion.div>

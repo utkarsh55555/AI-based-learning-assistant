@@ -581,7 +581,7 @@ export function StudyTimer() {
                       <div>
                         <p className="text-sm capitalize">{session.mode.replace("-", " ")}</p>
                         <p className="text-xs text-muted-foreground">
-                          {session.completedAt.toLocaleTimeString([], { 
+                          {new Date(session.completedAt).toLocaleTimeString([], { 
                             hour: '2-digit', 
                             minute: '2-digit' 
                           })}
