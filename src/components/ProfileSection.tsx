@@ -31,7 +31,7 @@ interface ProfileSectionProps {
   userName?: string;
   userEmail?: string;
   userAvatar?: string;
-  onAvatarChange?: (avatar: string) => void;
+  onProfileUpdate?: (profile: { name: string; email: string; avatar: string }) => void;
 }
 
 // Preset cute avatar options
@@ -82,7 +82,7 @@ export function ProfileSection({
   userName = "User", 
   userEmail = "user@example.com",
   userAvatar,
-  onAvatarChange
+  onProfileUpdate
 }: ProfileSectionProps) {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isSelectingAvatar, setIsSelectingAvatar] = useState(false);
@@ -91,14 +91,17 @@ export function ProfileSection({
   const [editedEmail, setEditedEmail] = useState(userEmail);
 
   const handleSaveProfile = () => {
+    if (onProfileUpdate) {
+      onProfileUpdate({ name: editedName, email: editedEmail, avatar: selectedAvatar });
+    }
     toast.success("Profile updated successfully! 🎉");
     setIsEditingProfile(false);
   };
 
   const handleSelectAvatar = (avatarUrl: string) => {
     setSelectedAvatar(avatarUrl);
-    if (onAvatarChange) {
-      onAvatarChange(avatarUrl);
+    if (onProfileUpdate) {
+      onProfileUpdate({ name: userName, email: userEmail, avatar: avatarUrl });
     }
     setIsSelectingAvatar(false);
     toast.success("Avatar updated! 🎨");
@@ -113,8 +116,8 @@ export function ProfileSection({
         if (event.target?.result) {
           const newAvatar = event.target.result as string;
           setSelectedAvatar(newAvatar);
-          if (onAvatarChange) {
-            onAvatarChange(newAvatar);
+          if (onProfileUpdate) {
+            onProfileUpdate({ name: userName, email: userEmail, avatar: newAvatar });
           }
           toast.success("Custom avatar uploaded! 🎉");
         }

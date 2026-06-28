@@ -64,14 +64,19 @@ export default function App() {
         try {
           const currentUser = await authAPI.getCurrentUser();
           if (currentUser && currentUser.user) {
+            const savedProfiles = JSON.parse(localStorage.getItem('customProfiles') || '{}');
+            const profile = savedProfiles[currentUser.user.id] || {};
             setUser({
               id: currentUser.user.id,
-              name: currentUser.user.name || '',
-              email: currentUser.user.email,
+              name: profile.name || currentUser.user.name || '',
+              email: profile.email || currentUser.user.email,
               isNewUser: false,
               total_xp: currentUser.user.total_xp,
               current_streak: currentUser.user.current_streak
             });
+            if (profile.avatar) {
+              setUserAvatar(profile.avatar);
+            }
             // setCurrentView("dashboard"); // Prevent skipping landing page
           }
         } catch (error) {
@@ -100,21 +105,49 @@ export default function App() {
   ];
 
   const handleLogin = (userData: User) => {
-    setUser(userData);
+    const savedProfiles = JSON.parse(localStorage.getItem('customProfiles') || '{}');
+    const profile = savedProfiles[userData.id || ''] || {};
+    
+    setUser({ 
+      ...userData, 
+      name: profile.name || userData.name, 
+      email: profile.email || userData.email 
+    });
+    
+    if (profile.avatar) {
+      setUserAvatar(profile.avatar);
+    }
+    
     setCurrentView("dashboard");
 
     // Welcome message with user's name - different for new vs returning users
     setTimeout(() => {
+      const displayName = profile.name || userData.name;
       if (userData.isNewUser) {
-        toast.success(`🎉 Welcome, ${userData.name}!`, {
+        toast.success(`🎉 Welcome, ${displayName}!`, {
           description: "Let's start your learning journey together! 🚀"
         });
       } else {
-        toast.success(`👋 Welcome back, ${userData.name}!`, {
+        toast.success(`👋 Welcome back, ${displayName}!`, {
           description: "Ready to continue your learning journey?"
         });
       }
     }, 500);
+  };
+
+  const handleProfileUpdate = (updatedProfile: { name: string; email: string; avatar: string }) => {
+    if (!user?.id) return;
+    
+    setUser({ ...user, name: updatedProfile.name, email: updatedProfile.email });
+    setUserAvatar(updatedProfile.avatar);
+    
+    const savedProfiles = JSON.parse(localStorage.getItem('customProfiles') || '{}');
+    savedProfiles[user.id] = {
+      name: updatedProfile.name,
+      email: updatedProfile.email,
+      avatar: updatedProfile.avatar
+    };
+    localStorage.setItem('customProfiles', JSON.stringify(savedProfiles));
   };
 
   // Show loading state while checking auth
@@ -433,7 +466,7 @@ export default function App() {
                 {currentView === "mindmap" && <MindMapBuilder onNavigate={setCurrentView} />}
                 {currentView === "leaderboard" && <Leaderboard />}
                 {currentView === "timer" && <StudyTimer />}
-                {currentView === "profile" && <ProfileSection userName={user?.name} userEmail={user?.email} userAvatar={userAvatar} onAvatarChange={setUserAvatar} />}
+                {currentView === "profile" && <ProfileSection userName={user?.name} userEmail={user?.email} userAvatar={userAvatar} onProfileUpdate={handleProfileUpdate} />}
               </motion.div>
             </AnimatePresence>
           </main>
