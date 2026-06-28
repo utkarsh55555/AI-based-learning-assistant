@@ -33,7 +33,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
-import { authAPI } from "./utils/api";
+import { authAPI, userAPI } from "./utils/api";
 
 type View = "landing" | "dashboard" | "chat" | "quiz" | "planner" | "notes" | "mindmap" | "leaderboard" | "timer" | "profile";
 
@@ -74,8 +74,8 @@ export default function App() {
               total_xp: currentUser.user.total_xp,
               current_streak: currentUser.user.current_streak
             });
-            if (profile.avatar) {
-              setUserAvatar(profile.avatar);
+            if (profile.avatar || currentUser.user.avatar_url) {
+              setUserAvatar(profile.avatar || currentUser.user.avatar_url);
             }
             // setCurrentView("dashboard"); // Prevent skipping landing page
           }
@@ -114,8 +114,8 @@ export default function App() {
       email: profile.email || userData.email 
     });
     
-    if (profile.avatar) {
-      setUserAvatar(profile.avatar);
+    if (profile.avatar || userData.avatar) {
+      setUserAvatar(profile.avatar || userData.avatar);
     }
     
     setCurrentView("dashboard");
@@ -135,9 +135,10 @@ export default function App() {
     }, 500);
   };
 
-  const handleProfileUpdate = (updatedProfile: { name: string; email: string; avatar: string }) => {
+  const handleProfileUpdate = async (updatedProfile: { name: string; email: string; avatar: string }) => {
     if (!user?.id) return;
     
+    // Optimistic local update
     setUser({ ...user, name: updatedProfile.name, email: updatedProfile.email });
     setUserAvatar(updatedProfile.avatar);
     
@@ -148,6 +149,16 @@ export default function App() {
       avatar: updatedProfile.avatar
     };
     localStorage.setItem('customProfiles', JSON.stringify(savedProfiles));
+
+    // Persist to backend so it works across devices
+    try {
+      await userAPI.updateProfile({
+        name: updatedProfile.name,
+        avatar_url: updatedProfile.avatar
+      });
+    } catch (error) {
+      console.error("Failed to sync profile to backend:", error);
+    }
   };
 
   // Show loading state while checking auth

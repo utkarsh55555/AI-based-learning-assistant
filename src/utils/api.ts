@@ -605,6 +605,34 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
     return { user } as any as T;
   }
 
+  if (endpoint === '/api/user/profile' && method === 'PUT') {
+    const user = getMockData<any>('current_user', {
+      id: 'mock-user-id',
+      email: 'student@obsidian.edu',
+      name: 'Obsidian Scholar',
+      total_xp: 2450,
+      current_streak: 7
+    });
+    
+    const updatedUser = {
+      ...user,
+      name: body.name || user.name,
+      avatar_url: body.avatar_url || user.avatar_url
+    };
+    
+    setMockData('current_user', updatedUser);
+    
+    // Also update in users array
+    const users = getMockData<any[]>('users', []);
+    const idx = users.findIndex(u => u.id === user.id);
+    if (idx !== -1) {
+      users[idx] = updatedUser;
+      setMockData('users', users);
+    }
+    
+    return updatedUser as any as T;
+  }
+
   // --- TUTOR / CHAT ---
   if (endpoint === '/api/tutor/chat') {
     const { message, conversation_history } = body;
