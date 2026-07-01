@@ -133,8 +133,8 @@ export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: 
       totalXP = stats.totalXp;
       level = stats.level;
       streak = stats.currentStreak;
-      achievements = stats.unlockedAchievements.length;
-      weeklyXP = stats.weeklyActivity.reduce((sum, day) => sum + day.xpEarned, 0);
+      achievements = stats.achievements.filter(a => a.unlockedAt).length;
+      weeklyXP = stats.weeklyActivity.reduce((sum, day) => sum + day.xp, 0);
     }
 
     // Add current user
