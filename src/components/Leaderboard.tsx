@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card } from "./ui/card";
 import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Trophy, Medal, TrendingUp, Star, Zap, Target } from "lucide-react";
 import { motion } from "motion/react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
+import { getUserStats, onStatsUpdated, type UserStats } from "../utils/userStatsStore";
 
 interface LeaderboardEntry {
   id: string;
@@ -19,19 +20,8 @@ interface LeaderboardEntry {
   weeklyXP: number;
 }
 
-const mockData: LeaderboardEntry[] = [
-  { 
-    id: "1", 
-    name: "You", 
-    avatar: "https://images.unsplash.com/photo-1638639930738-11a71fca1b4e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwY2F0JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDI3NTQ2fDA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 2450, 
-    level: 8, 
-    streak: 7, 
-    achievements: 12, 
-    rank: 4, 
-    weeklyXP: 450 
-  },
-  { 
+const mockData: LeaderboardEntry[] = [ 
+  {
     id: "2", 
     name: "Sarah Chen", 
     avatar: "https://images.unsplash.com/photo-1617223777538-5698e655a613?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwZG9nJTIwcG9ydHJhaXR8ZW58MXx8fHwxNzU5OTY3MTQwfDA&ixlib=rb-4.1.0&q=80&w=400", 
@@ -110,8 +100,71 @@ const mockData: LeaderboardEntry[] = [
   },
 ];
 
-export function Leaderboard() {
+interface LeaderboardProps {
+  userId?: string;
+  userName?: string;
+  userAvatar?: string;
+}
+
+export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: LeaderboardProps) {
   const [timeframe, setTimeframe] = useState<"all" | "weekly" | "monthly">("all");
+  const [stats, setStats] = useState<UserStats | null>(null);
+
+  useEffect(() => {
+    if (userId) {
+      setStats(getUserStats(userId));
+      const unsub = onStatsUpdated(() => {
+        setStats(getUserStats(userId));
+      });
+      return unsub;
+    }
+  }, [userId]);
+
+  const leaderboardData = useMemo(() => {
+    const data = [...mockData];
+    
+    let weeklyXP = 0;
+    let totalXP = 0;
+    let level = 1;
+    let streak = 0;
+    let achievements = 0;
+
+    if (stats) {
+      totalXP = stats.totalXp;
+      level = stats.level;
+      streak = stats.currentStreak;
+      achievements = stats.unlockedAchievements.length;
+      weeklyXP = stats.weeklyActivity.reduce((sum, day) => sum + day.xpEarned, 0);
+    }
+
+    // Add current user
+    data.push({
+      id: userId || "current-user",
+      name: userName || "You",
+      avatar: userAvatar || "https://images.unsplash.com/photo-1638639930738-11a71fca1b4e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwY2F0JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDI3NTQ2fDA&ixlib=rb-4.1.0&q=80&w=400",
+      xp: totalXP,
+      level: level,
+      streak: streak,
+      achievements: achievements,
+      rank: 0,
+      weeklyXP: weeklyXP
+    });
+
+    // Sort based on timeframe
+    data.sort((a, b) => {
+      if (timeframe === "weekly") return b.weeklyXP - a.weeklyXP;
+      return b.xp - a.xp;
+    });
+
+    // Assign ranks
+    data.forEach((entry, idx) => {
+      entry.rank = idx + 1;
+    });
+
+    return data;
+  }, [stats, timeframe, userId, userName, userAvatar]);
+
+  const currentUserEntry = leaderboardData.find(e => e.id === (userId || "current-user")) || leaderboardData[0];
 
   const getRankIcon = (rank: number) => {
     switch (rank) {
@@ -165,7 +218,7 @@ export function Leaderboard() {
 
       {/* Top 3 Podium */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        {mockData.slice(0, 3).sort((a, b) => a.rank - b.rank).map((entry, idx) => (
+        {leaderboardData.slice(0, 3).sort((a, b) => a.rank - b.rank).map((entry, idx) => (
           <motion.div
             key={entry.id}
             initial={{ opacity: 0, y: 20 }}
@@ -201,7 +254,7 @@ export function Leaderboard() {
       <div className="glass-card p-6 rounded-xl flex-1 overflow-hidden flex flex-col">
         <h3 className="mb-4">Rankings</h3>
         <div className="space-y-2 overflow-auto flex-1">
-          {mockData.map((entry, idx) => (
+          {leaderboardData.map((entry, idx) => (
             <motion.div
               key={entry.id}
               initial={{ opacity: 0, x: -20 }}
@@ -210,7 +263,7 @@ export function Leaderboard() {
             >
               <Card
                 className={`p-4 ${
-                  entry.name === "You"
+                  entry.id === (userId || "current-user")
                     ? "bg-blue-600/20 border-blue-600/50 ring-2 ring-blue-600/30"
                     : "glass-card"
                 }`}
@@ -232,7 +285,7 @@ export function Leaderboard() {
                   <div className="flex-1">
                     <h4 className="flex items-center gap-2">
                       {entry.name}
-                      {entry.name === "You" && (
+                      {entry.id === (userId || "current-user") && (
                         <Badge variant="outline" className="text-xs">You</Badge>
                       )}
                     </h4>
@@ -267,24 +320,23 @@ export function Leaderboard() {
         </div>
       </div>
 
-      {/* Your Stats Summary */}
       <div className="glass-card p-4 rounded-xl mt-4">
         <div className="grid grid-cols-4 gap-4 text-center">
           <div>
             <p className="text-sm text-muted-foreground mb-1">Your Rank</p>
-            <p className="text-xl">#4</p>
+            <p className="text-xl">#{currentUserEntry.rank}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground mb-1">Total XP</p>
-            <p className="text-xl">2,450</p>
+            <p className="text-xl">{currentUserEntry.xp.toLocaleString()}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground mb-1">Streak</p>
-            <p className="text-xl">7 🔥</p>
+            <p className="text-xl">{currentUserEntry.streak} 🔥</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground mb-1">To Next Rank</p>
-            <p className="text-xl text-blue-400">440 XP</p>
+            <p className="text-sm text-muted-foreground mb-1">Weekly XP</p>
+            <p className="text-xl text-blue-400">+{currentUserEntry.weeklyXP.toLocaleString()}</p>
           </div>
         </div>
       </div>

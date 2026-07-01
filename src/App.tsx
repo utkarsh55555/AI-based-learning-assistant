@@ -197,6 +197,15 @@ export default function App() {
     };
     localStorage.setItem('customProfiles', JSON.stringify(savedProfiles));
 
+    // Also update the main user object in localStorage so it doesn't get out of sync
+    const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    if (storedUser) {
+      storedUser.name = updatedProfile.name;
+      storedUser.email = updatedProfile.email;
+      storedUser.avatar_url = updatedProfile.avatar;
+      localStorage.setItem('user', JSON.stringify(storedUser));
+    }
+
     // Persist to backend so it works across devices
     try {
       await userAPI.updateProfile({
@@ -530,8 +539,8 @@ export default function App() {
                 {currentView === "planner" && <StudyPlanner />}
                 {currentView === "notes" && <NotesGenerator userId={user?.id} />}
                 {currentView === "mindmap" && <MindMapBuilder onNavigate={setCurrentView} userId={user?.id} />}
-                {currentView === "leaderboard" && <Leaderboard />}
                 {currentView === "timer" && <StudyTimer userId={user?.id} />}
+                {currentView === "leaderboard" && <Leaderboard userId={user?.id} userName={user?.name} userAvatar={userAvatar} />}
                 {currentView === "profile" && <ProfileSection userName={user?.name} userEmail={user?.email} userAvatar={userAvatar} userId={user?.id} onProfileUpdate={handleProfileUpdate} />}
               </motion.div>
             </AnimatePresence>

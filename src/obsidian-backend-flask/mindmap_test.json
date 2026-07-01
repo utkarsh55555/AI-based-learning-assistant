@@ -1,0 +1,118 @@
+Testing MindMap...
+Raw response:
+{
+    "title": "Photosynthesis",
+    "topics": [
+        {
+            "id": "topic-1",
+            "label": "Definition and Importance",
+            "color": "#3B82F6",
+            "summary": "Photosynthesis is the biochemical process through which green plants, algae, and some bacteria convert light energy into chemical energy, using carbon dioxide and water to produce glucose and oxygen. It is vital for life on Earth as it provides the primary energy source for nearly all ecosystems and is responsible for the oxygen we breathe.",
+            "subtopics": [
+                {
+                    "id": "subtopic-1-1",
+                    "label": "Process Overview",
+                    "summary": "Photosynthesis occurs in two stages: the light-dependent reactions and the light-independent reactions (Calvin cycle). The light-dependent reactions convert sunlight into chemical energy in the form of ATP and NADPH, while the Calvin cycle utilizes this energy to synthesize glucose from carbon dioxide."
+                },
+                {
+                    "id": "subtopic-1-2",
+                    "label": "Ecological Role",
+                    "summary": "Photosynthesis plays a crucial role in the carbon cycle, helping to regulate atmospheric carbon dioxide levels and supporting diverse life forms through the production of organic matter."
+                }
+            ]
+        },
+        {
+            "id": "topic-2",
+            "label": "Light-Dependent Reactions",
+            "color": "#10B981",
+            "summary": "The light-dependent reactions take place in the thylakoid membranes of chloroplasts and require sunlight. These reactions convert solar energy into chemical energy, producing ATP and NADPH while releasing oxygen as a byproduct.",
+            "subtopics": [
+                {
+                    "id": "subtopic-2-1",
+                    "label": "Chlorophyll and Light Absorption",
+                    "summary": "Chlorophyll, the green pigment in plants, absorbs light primarily in the blue and red wavelengths. This energy is used to excite electrons, initiating the photosynthetic process."
+                },
+                {
+                    "id": "subtopic-2-2",
+                    "label": "Electron Transport Chain",
+                    "summary": "Excited electrons travel through a series of proteins in the thylakoid membrane, facilitating the pumping of hydrogen ions and the synthesis of ATP through chemiosmosis."
+                },
+                {
+                    "id": "subtopic-2-3",
+                    "label": "Water Splitting",
+                    "summary": "Water molecules are split to provide electrons, releasing oxygen as a byproduct and contributing to the proton gradient needed for ATP synthesis."
+                }
+            ]
+        },
+        {
+            "id": "topic-3",
+            "label": "Calvin Cycle",
+            "color": "#F59E0B",
+            "summary": "The Calvin cycle, also known as the light-independent reactions, occurs in the stroma of chloroplasts. It uses ATP and NADPH produced in the light-dependent reactions to convert carbon dioxide into glucose.",
+            "subtopics": [
+                {
+                    "id": "subtopic-3-1",
+                    "label": "Carbon Fixation",
+                    "summary": "In this phase, carbon dioxide is captured and attached to a 5-carbon sugar (ribulose bisphosphate) by the enzyme RuBisCO, forming a 6-carbon compound that quickly splits into two 3-carbon molecules."
+                },
+                {
+                    "id": "subtopic-3-2",
+                    "label": "Reduction Phase",
+                    "summary": "The 3-carbon molecules are converted into glyceraldehyde-3-phosphate (G3P) using ATP and NADPH, which can then be used to form glucose and other carbohydrates."
+                },
+                {
+                    "id": "subtopic-3-3",
+                    "label": "Regeneration of RuBP",
+                    "summary": "Some G3P molecules are used to regenerate ribulose bisphosphate (RuBP), allowing the cycle to continue. This phase also requires ATP and is essential for maintaining the cycle's operation."
+                }
+            ]
+        },
+        {
+            "id": "topic-4",
+            "label": "Factors Affecting Photosynthesis",
+            "color": "#8B5CF6",
+            "summary": "Various factors can influence the rate of photosynthesis, including light intensity, carbon dioxide concentration, temperature, and the availability of water. Understanding these factors helps in optimizing growth conditions for plants.",
+            "subtopics": [
+                {
+                    "id": "subtopic-4-1",
+                    "label": "Light Intensity",
+                    "summary": "Increased light intensity generally boosts the rate of photosynthesis, up to a certain point. Beyond this point, other factors become limiting."
+                },
+                {
+                    "id": "subtopic-4-2",
+                    "label": "Temperature",
+                    "summary": "Photosynthesis is temperature-dependent. Each plant species has an optimal temperature range for photosynthesis, beyond which the rate declines due to enzyme denaturation."
+                },
+                {
+                    "id": "subtopic-4-3",
+                    "label": "Water Availability",
+                    "summary": "Water is essential for the light-dependent reactions. Insufficient water can lead to stomatal closure, reducing CO2 intake and ultimately decreasing photosynthesis."
+                }
+            ]
+        },
+        {
+            "id": "topic-5",
+            "label": "Applications of Photosynthesis",
+            "color": "#EC4899",
+            "summary": "Understanding photosynthesis has significant implications in agriculture, ecology, and renewable energy. It informs practices in crop cultivation and bioenergy production.",
+            "subtopics": [
+                {
+                    "id": "subtopic-5-1",
+                    "label": "Agricultural Practices",
+                    "summary": "Knowledge of photosynthesis can aid in developing farming techniques that enhance light absorption and carbon fixation, improving crop yields."
+                },
+                {
+                    "id": "subtopic-5-2",
+                    "label": "Biofuels",
+                    "summary": "Photosynthesis is a key process in the production of biofuels, as it allows for the conversion of solar energy into biomass, which can be processed into renewable energy sources."
+                },
+                {
+                    "id": "subtopic-5-3",
+                    "label": "Climate Change Mitigation",
+                    "summary": "Enhancing photosynthetic efficiency in plants can help sequester carbon, contributing to climate change mitigation efforts by reducing atmospheric CO2 levels."
+                }
+            ]
+        }
+    ]
+}
+Parsed successfully!
