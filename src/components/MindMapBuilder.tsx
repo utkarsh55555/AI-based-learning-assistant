@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { mindmapAPI } from "../utils/api";
 import { toPng, toBlob } from "html-to-image";
+import { recordMindMapCreated } from "../utils/userStatsStore";
 
 interface SubTopic {
   id: string;
@@ -220,10 +221,11 @@ const sampleMindMaps: MindMap[] = [
 
 interface MindMapBuilderProps {
   onNavigate?: (view: "landing" | "dashboard" | "chat" | "quiz" | "planner" | "notes" | "mindmap" | "leaderboard" | "timer" | "profile") => void;
+  userId?: string;
 }
 
-export function MindMapBuilder({ onNavigate }: MindMapBuilderProps) {
-  const [mindMaps, setMindMaps] = useLocalStorage<MindMap[]>("mindMaps", sampleMindMaps);
+export function MindMapBuilder({ onNavigate, userId = "" }: MindMapBuilderProps) {
+  const [mindMaps, setMindMaps] = useLocalStorage<MindMap[]>("mindMaps", []);
   const [selectedMap, setSelectedMap] = useState<MindMap | null>(mindMaps[0] || null);
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [selectedSubtopic, setSelectedSubtopic] = useState<SubTopic | null>(null);
@@ -257,6 +259,12 @@ export function MindMapBuilder({ onNavigate }: MindMapBuilderProps) {
       setSelectedMap(newMap);
       setNewMapTitle("");
       setShowCreateForm(false);
+
+      // Record mind map creation in stats store
+      if (userId) {
+        recordMindMapCreated(userId, newMap.title);
+      }
+
       toast.success("Mind map generated successfully!");
     } catch (error: any) {
       console.error("Error generating mind map:", error);

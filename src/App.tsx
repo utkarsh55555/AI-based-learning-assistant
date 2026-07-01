@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "./components/ui/button";
 import { ObsidianCore } from "./components/ObsidianCore";
 import { LoginScreen } from "./components/LoginScreen";
@@ -34,6 +34,14 @@ import { motion, AnimatePresence } from "motion/react";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
 import { authAPI, userAPI } from "./utils/api";
+import {
+  getUserStats,
+  updateDailyStreak,
+  onStatsUpdated,
+  xpForNextLevel,
+  computeLevel,
+  type UserStats,
+} from "./utils/userStatsStore";
 
 type View = "landing" | "dashboard" | "chat" | "quiz" | "planner" | "notes" | "mindmap" | "leaderboard" | "timer" | "profile";
 
@@ -54,6 +62,37 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userAvatar, setUserAvatar] = useState("https://images.unsplash.com/photo-1638639930738-11a71fca1b4e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwY2F0JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDI3NTQ2fDA&ixlib=rb-4.1.0&q=80&w=400");
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [liveStats, setLiveStats] = useState<UserStats | null>(null);
+
+  // Load live stats whenever they change
+  const refreshStats = useCallback(() => {
+    if (user?.id) {
+      setLiveStats(getUserStats(user.id));
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    refreshStats();
+    const unsub = onStatsUpdated(refreshStats);
+    return unsub;
+  }, [refreshStats]);
+
+  // Listen for achievement unlocks and show toast
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const names: string[] = (e as CustomEvent).detail || [];
+      names.forEach((name, i) => {
+        setTimeout(() => {
+          toast.success(`🏆 Achievement Unlocked: ${name}!`, {
+            description: "Keep up the great work!",
+            duration: 5000,
+          });
+        }, i * 800);
+      });
+    };
+    window.addEventListener("obsidian-achievement", handler);
+    return () => window.removeEventListener("obsidian-achievement", handler);
+  }, []);
 
   // Check if user is already logged in on mount
   useEffect(() => {
@@ -109,16 +148,23 @@ export default function App() {
     const savedProfiles = JSON.parse(localStorage.getItem('customProfiles') || '{}');
     const profile = savedProfiles[userData.id || ''] || {};
     
-    setUser({ 
+    const loggedInUser = { 
       ...userData, 
       name: profile.name || userData.name, 
       email: profile.email || userData.email 
-    });
+    };
+    setUser(loggedInUser);
     
     if (profile.avatar || userData.avatar || userData.avatar_url) {
       setUserAvatar(profile.avatar || userData.avatar || userData.avatar_url);
     }
     
+    // Update daily streak on login
+    if (userData.id) {
+      updateDailyStreak(userData.id);
+      setLiveStats(getUserStats(userData.id));
+    }
+
     setCurrentView("dashboard");
 
     // Welcome message with user's name - different for new vs returning users
@@ -372,13 +418,19 @@ export default function App() {
               <div className="p-4 border-t border-blue-900/30">
                 <div className="glass-card p-3 rounded-lg mb-3 border border-blue-900/30">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-muted-foreground">Level 8</span>
+                    <span className="text-sm text-muted-foreground">Level {liveStats?.level ?? 1}</span>
                     <Trophy className="w-4 h-4 text-blue-400" />
                   </div>
                   <div className="w-full bg-blue-950/50 rounded-full h-2 border border-blue-900/30">
-                    <div className="gradient-blue h-2 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]" style={{ width: "65%" }} />
+                    {(() => {
+                      const xpInfo = liveStats ? xpForNextLevel(liveStats.totalXp) : { current: 0, needed: 100 };
+                      const pct = Math.min(100, (xpInfo.current / xpInfo.needed) * 100);
+                      return <div className="gradient-blue h-2 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]" style={{ width: `${pct}%` }} />;
+                    })()}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">2,450 / 4,000 XP</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {liveStats ? `${liveStats.totalXp.toLocaleString()} XP` : "0 XP"}
+                  </p>
                 </div>
 
                 <div className="flex gap-2">
@@ -449,11 +501,13 @@ export default function App() {
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-600/20 border border-orange-600/30">
                   <span className="text-orange-400 text-sm">🔥</span>
-                  <span className="text-sm">7 day streak</span>
+                  <span className="text-sm">
+                    {liveStats ? `${liveStats.currentStreak} day${liveStats.currentStreak !== 1 ? 's' : ''}` : '0 days'} streak
+                  </span>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600/20 border border-blue-500/30 shadow-[0_0_10px_rgba(59,130,246,0.1)]">
                   <Trophy className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm">2,450 XP</span>
+                  <span className="text-sm">{liveStats ? liveStats.totalXp.toLocaleString() : '0'} XP</span>
                 </div>
               </div>
             </div>
@@ -470,15 +524,15 @@ export default function App() {
                 transition={{ duration: 0.3 }}
                 className="h-full"
               >
-                {currentView === "dashboard" && <EnhancedDashboard userName={user?.name} isNewUser={user?.isNewUser} />}
-                {currentView === "chat" && <EnhancedChatInterface />}
-                {currentView === "quiz" && <EnhancedQuizMode />}
+                {currentView === "dashboard" && <EnhancedDashboard userName={user?.name} isNewUser={user?.isNewUser} userId={user?.id} />}
+                {currentView === "chat" && <EnhancedChatInterface userId={user?.id} />}
+                {currentView === "quiz" && <EnhancedQuizMode userId={user?.id} />}
                 {currentView === "planner" && <StudyPlanner />}
-                {currentView === "notes" && <NotesGenerator />}
-                {currentView === "mindmap" && <MindMapBuilder onNavigate={setCurrentView} />}
+                {currentView === "notes" && <NotesGenerator userId={user?.id} />}
+                {currentView === "mindmap" && <MindMapBuilder onNavigate={setCurrentView} userId={user?.id} />}
                 {currentView === "leaderboard" && <Leaderboard />}
-                {currentView === "timer" && <StudyTimer />}
-                {currentView === "profile" && <ProfileSection userName={user?.name} userEmail={user?.email} userAvatar={userAvatar} onProfileUpdate={handleProfileUpdate} />}
+                {currentView === "timer" && <StudyTimer userId={user?.id} />}
+                {currentView === "profile" && <ProfileSection userName={user?.name} userEmail={user?.email} userAvatar={userAvatar} userId={user?.id} onProfileUpdate={handleProfileUpdate} />}
               </motion.div>
             </AnimatePresence>
           </main>

@@ -10,6 +10,7 @@ import { Play, Pause, RotateCcw, Clock, Coffee, Target, Volume2, VolumeX, Settin
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+import { recordStudySession } from "../utils/userStatsStore";
 
 type TimerMode = "focus" | "short-break" | "long-break" | "mid-break";
 
@@ -32,7 +33,7 @@ interface Session {
   completedAt: Date;
 }
 
-export function StudyTimer() {
+export function StudyTimer({ userId = "" }: { userId?: string }) {
   const [mode, setMode] = useState<TimerMode>("focus");
   const [preset, setPreset] = useState<string>("classic");
   const [customDuration, setCustomDuration] = useState<number>(25);
@@ -242,6 +243,13 @@ export function StudyTimer() {
     if (mode === "focus") {
       const newCount = pomodorosCompleted + 1;
       setPomodorosCompleted(newCount);
+
+      // Record real study session
+      if (userId) {
+        const focusMinutes = Math.round(totalTime / 60);
+        recordStudySession(userId, focusMinutes, "Focus Session");
+      }
+
       toast.success("🎉 Focus session complete! Great work!", {
         description: "Time for a break!"
       });

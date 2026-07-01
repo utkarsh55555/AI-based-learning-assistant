@@ -1,5 +1,4 @@
 
-
 import { useState, useEffect, useRef } from "react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -16,6 +15,7 @@ import { CheckCircle2, XCircle, Clock, Award, Sparkles, Zap, Target, Brain, Came
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { quizAPI } from "../utils/api";
+import { recordQuizResult } from "../utils/userStatsStore";
 
 interface Question {
   id: number;
@@ -70,7 +70,7 @@ const mockQuestions: Question[] = [
   },
 ];
 
-export function EnhancedQuizMode() {
+export function EnhancedQuizMode({ userId = "" }: { userId?: string }) {
   const [quizMode, setQuizMode] = useState<"practice" | "timed" | "rapid">("practice");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard" | "adaptive">("adaptive");
   const [subject, setSubject] = useState<string>("all");
@@ -318,6 +318,17 @@ export function EnhancedQuizMode() {
       
       setXpEarned(result.xp?.xp_earned || 0);
       setQuizComplete(true);
+
+      // Record real quiz result in stats store
+      if (userId) {
+        recordQuizResult(
+          userId,
+          quizTopic,
+          result.score,
+          result.total,
+          result.xp?.xp_earned
+        );
+      }
       
       toast.success(`Quiz completed! Score: ${result.score}/${result.total} (${result.percentage.toFixed(1)}%)`, {
         description: `You earned ${result.xp?.xp_earned || 0} XP!`

@@ -12,6 +12,7 @@ import { FileText, Plus, Download, Sparkles, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { notesAPI } from "../utils/api";
+import { recordNoteCreated } from "../utils/userStatsStore";
 
 interface Note {
   id: number;
@@ -23,40 +24,9 @@ interface Note {
   createdAt: string;
 }
 
-const mockNotes: Note[] = [
-  {
-    id: 1,
-    title: "Quantum Mechanics Basics",
-    subject: "Physics",
-    content: "Wave-particle duality is a fundamental concept in quantum mechanics. It states that particles like electrons and photons exhibit both wave-like and particle-like properties...",
-    summary: "Introduction to wave-particle duality and its implications in quantum mechanics.",
-    keyPoints: [
-      "Matter exhibits wave-particle duality",
-      "Heisenberg uncertainty principle",
-      "Quantum superposition",
-      "Wave function collapse upon measurement"
-    ],
-    createdAt: "2024-01-15"
-  },
-  {
-    id: 2,
-    title: "Calculus - Integration Techniques",
-    subject: "Mathematics",
-    content: "Integration by parts is a powerful technique derived from the product rule for differentiation. The formula is ∫u dv = uv - ∫v du...",
-    summary: "Overview of integration by parts and substitution methods.",
-    keyPoints: [
-      "Integration by parts formula",
-      "U-substitution method",
-      "Trigonometric integration",
-      "Partial fractions decomposition"
-    ],
-    createdAt: "2024-01-14"
-  }
-];
-
-export function NotesGenerator() {
-  const [notes, setNotes] = useLocalStorage<Note[]>("generatedNotes", mockNotes);
-  const [selectedNote, setSelectedNote] = useState<Note | null>(notes[0] || null);
+export function NotesGenerator({ userId = "" }: { userId?: string }) {
+  const [notes, setNotes] = useLocalStorage<Note[]>("generatedNotes", []);
+  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [newNoteTopic, setNewNoteTopic] = useState("");
   const [newNoteSubject, setNewNoteSubject] = useState("Mathematics");
@@ -136,6 +106,12 @@ export function NotesGenerator() {
       setNotes([newNote, ...notes]);
       setSelectedNote(newNote);
       setNewNoteTopic("");
+
+      // Record note creation in stats store
+      if (userId) {
+        recordNoteCreated(userId, newNote.title);
+      }
+
       toast.success("✨ Notes generated successfully!");
     } catch (error: any) {
       console.error("Error generating notes:", error);
