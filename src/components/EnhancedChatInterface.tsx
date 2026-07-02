@@ -6,7 +6,7 @@ import { Badge } from "./ui/badge";
 import { Avatar } from "./ui/avatar";
 import {
   Send, Sparkles, Camera, Volume2, ThumbsUp, ThumbsDown, Copy,
-  Mic, MicOff, History, X, ChevronRight, Clock, MessageSquare,
+  Mic, MicOff, History, X, ChevronRight, Clock, MessageSquare, Paperclip, FileText, Image, Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
@@ -45,13 +45,20 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [imageUploadMode, setImageUploadMode] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [typingText, setTypingText] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
+  
+  // File upload states
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [fileContextText, setFileContextText] = useState<string>("");
+  const [imageBase64, setImageBase64] = useState<string>("");
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadHistory = useCallback(() => {
     if (!userId) return;
@@ -97,26 +104,49 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
   }, []);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() && !imageBase64 && !fileContextText) return;
 
-    const userContent = input.trim();
-    const userMessage: Message = { role: "user", content: userContent };
+    let userContent = input.trim();
+    if (fileContextText) {
+      userContent = `[Attached Document Context: ${fileContextText}]\n\n${userContent}`;
+    }
+
+    // Build multimodal message if image exists, otherwise plain string
+    let finalMessage: any = userContent;
+    if (imageBase64) {
+      finalMessage = [
+        { type: "text", text: userContent || "Analyze this image." },
+        { type: "image_url", image_url: { url: imageBase64 } }
+      ];
+    }
+
+    const userMessage: Message = { 
+      role: "user", 
+      content: imageBase64 ? (input.trim() || "Uploaded an image") : userContent 
+    };
     const currentMessages = [...messages, userMessage];
     setMessages(currentMessages);
     setInput("");
     setIsTyping(true);
+    
+    // Clear attachment states after sending
+    const currentFileContext = fileContextText;
+    const currentImageBase64 = imageBase64;
+    setSelectedFile(null);
+    setFileContextText("");
+    setImageBase64("");
 
     // Persist user message immediately
     if (userId) {
-      recordChatMessage(userId, "user", userContent, sessionId);
+      recordChatMessage(userId, "user", input.trim() || (currentImageBase64 ? "Uploaded an image" : "Uploaded a document"), sessionId);
     }
 
     try {
       const conversationHistory = currentMessages
-        .filter(msg => msg.role !== "system")
+        .filter(msg => msg.role !== "system" && msg !== userMessage) // Filter out the newly added user message to prevent duplication
         .map(msg => ({ role: msg.role, content: msg.content }));
 
-      const response = await tutorAPI.chat(userContent, conversationHistory);
+      const response = await tutorAPI.chat(finalMessage, conversationHistory);
       const responseText = response.response;
 
       // Typing animation
@@ -180,6 +210,49 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
       recognitionRef.current.start();
       setIsListening(true);
       toast.info("🎤 Listening...");
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check size limit (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("File is too large. Please upload a file smaller than 5MB.");
+      return;
+    }
+
+    setSelectedFile(file);
+    setIsUploadingFile(true);
+    setFileContextText("");
+    setImageBase64("");
+
+    try {
+      if (file.type.startsWith('image/')) {
+        // Read image as Base64 for multimodal LLM
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setImageBase64(reader.result as string);
+          setIsUploadingFile(false);
+        };
+        reader.onerror = () => {
+          toast.error("Failed to read image file");
+          setIsUploadingFile(false);
+          setSelectedFile(null);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        // For PDF, DOCX, TXT, etc., extract text via backend
+        const data = await tutorAPI.uploadDocument(file);
+        setFileContextText(data.extracted_text);
+        setIsUploadingFile(false);
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to process document");
+      setSelectedFile(null);
+      setIsUploadingFile(false);
     }
   };
 
@@ -293,17 +366,26 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
 
           {/* Feature Toggles */}
           <div className="flex gap-2 flex-wrap">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              className="hidden"
+              accept=".pdf,.doc,.docx,.txt,.md,.csv,image/*"
+            />
             <Button
               size="sm"
-              variant={imageUploadMode ? "default" : "outline"}
-              onClick={() => {
-                setImageUploadMode(!imageUploadMode);
-                toast.info(imageUploadMode ? "Image mode disabled" : "Image mode enabled - Upload handwritten problems!");
-              }}
-              className={imageUploadMode ? "bg-blue-600 h-9" : "h-9"}
+              variant={selectedFile ? "default" : "outline"}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploadingFile}
+              className={selectedFile ? "bg-blue-600 h-9" : "h-9"}
             >
-              <Camera className="w-3 h-3 mr-1" />
-              Image
+              {isUploadingFile ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Paperclip className="w-3 h-3 mr-1" />
+              )}
+              {selectedFile ? 'Change File' : 'Attach File'}
             </Button>
             <Button
               size="sm"
@@ -432,19 +514,37 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
           </div>
         )}
 
-        {/* Image Upload Zone */}
+        {/* Attachment Preview Zone */}
         <AnimatePresence>
-          {imageUploadMode && (
+          {selectedFile && !isUploadingFile && (
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mb-4 p-4 glass-card rounded-xl border-2 border-dashed border-blue-600/30"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="mb-4 px-4"
             >
-              <div className="text-center">
-                <Camera className="w-8 h-8 mx-auto mb-2 text-blue-400" />
-                <p className="text-sm text-muted-foreground mb-2">Upload a photo of your handwritten problem</p>
-                <Button size="sm" variant="outline" className="hover:bg-white/10">Choose Image</Button>
+              <div className="inline-flex items-center gap-2 px-3 py-2 bg-blue-950/30 border border-blue-800/50 rounded-lg">
+                {selectedFile.type.startsWith('image/') ? (
+                  <Image className="w-4 h-4 text-blue-400" />
+                ) : (
+                  <FileText className="w-4 h-4 text-blue-400" />
+                )}
+                <span className="text-sm text-blue-100 truncate max-w-[200px]">
+                  {selectedFile.name}
+                </span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="w-5 h-5 ml-2 hover:bg-white/10 rounded-full"
+                  onClick={() => {
+                    setSelectedFile(null);
+                    setFileContextText("");
+                    setImageBase64("");
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                >
+                  <X className="w-3 h-3 text-red-400" />
+                </Button>
               </div>
             </motion.div>
           )}
@@ -472,7 +572,7 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
               )}
               <Button
                 onClick={handleSend}
-                disabled={!input.trim() || isTyping}
+                disabled={(!input.trim() && !imageBase64 && !fileContextText) || isTyping || isUploadingFile}
                 className="bg-blue-600 hover:bg-blue-700 hover:scale-105 hover:shadow-[0_0_30px_rgba(59,130,246,0.5)] transition-all duration-300 h-[60px] px-6 disabled:opacity-50 disabled:scale-100"
               >
                 <Send className="w-4 h-4" />

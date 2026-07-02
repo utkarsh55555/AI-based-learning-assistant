@@ -1214,7 +1214,7 @@ export const authAPI = {
 
 // Tutor/Chat API
 export const tutorAPI = {
-  chat: async (message: string, conversationHistory: any[] = []) => {
+  chat: async (message: any, conversationHistory: any[] = []) => {
     return apiRequest<{
       response: string;
       conversation_history: any[];
