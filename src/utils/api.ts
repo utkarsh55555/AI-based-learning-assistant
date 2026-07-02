@@ -1230,6 +1230,35 @@ export const tutorAPI = {
       body: JSON.stringify({ topic, level }),
     });
   },
+
+  uploadDocument: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // We can't use the standard apiRequest wrapper easily for FormData because it stringifies body,
+    // so we make a direct fetch call here with the auth token.
+    const token = localStorage.getItem('access_token');
+    
+    // Mock the backend API URL if not available
+    const baseUrl = window.location.origin.includes('localhost') 
+      ? 'http://localhost:5000' 
+      : 'https://ai-learning-assistant-backend.onrender.com';
+      
+    const response = await fetch(`${baseUrl}/api/tutor/upload`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to upload document');
+    }
+    
+    return response.json().then(data => data.data || data);
+  },
 };
 
 // Quiz API
