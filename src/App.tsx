@@ -40,6 +40,7 @@ import {
   onStatsUpdated,
   xpForNextLevel,
   computeLevel,
+  syncStatsFromServer,
   type UserStats,
 } from "./utils/userStatsStore";
 
@@ -106,6 +107,17 @@ export default function App() {
           if (currentUser && currentUser.user) {
             const savedProfiles = JSON.parse(localStorage.getItem('customProfiles') || '{}');
             const profile = savedProfiles[currentUser.user.id] || {};
+            
+            // Sync cloud stats
+            try {
+              const userProfile = await userAPI.getProfile();
+              if (userProfile?.preferences && Object.keys(userProfile.preferences).length > 0) {
+                syncStatsFromServer(currentUser.user.id.toString(), userProfile.preferences);
+              }
+            } catch (e) {
+              console.warn("Failed to sync cloud stats on load:", e);
+            }
+
             setUser({
               id: currentUser.user.id,
               name: profile.name || currentUser.user.name || '',
@@ -161,8 +173,18 @@ export default function App() {
     
     // Update daily streak on login
     if (userData.id) {
-      updateDailyStreak(userData.id);
-      setLiveStats(getUserStats(userData.id));
+      // Fetch cloud stats and sync
+      userAPI.getProfile().then(userProfile => {
+        if (userProfile?.preferences && Object.keys(userProfile.preferences).length > 0) {
+          syncStatsFromServer(userData.id!.toString(), userProfile.preferences);
+        }
+        updateDailyStreak(userData.id!);
+        setLiveStats(getUserStats(userData.id!));
+      }).catch(e => {
+        console.warn("Failed to sync cloud stats on login:", e);
+        updateDailyStreak(userData.id!);
+        setLiveStats(getUserStats(userData.id!));
+      });
     }
 
     setCurrentView("dashboard");

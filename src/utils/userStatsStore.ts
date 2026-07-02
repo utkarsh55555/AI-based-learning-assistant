@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  userStatsStore.ts  –  Per-user activity tracking via localStorage
+//  userStatsStore.ts  –  Per-user activity tracking via localStorage and cloud
 // ─────────────────────────────────────────────────────────────────────────────
+import { userAPI } from "./api";
 
 export interface ActivityItem {
   id: string;
@@ -209,6 +210,9 @@ export function getUserStats(userId: string): UserStats {
   }
 }
 
+// Debounce mechanism for cloud sync
+const syncTimeouts: Record<string, NodeJS.Timeout> = {};
+
 export function saveUserStats(userId: string, stats: UserStats): void {
   if (!userId) return;
   try {
@@ -216,8 +220,34 @@ export function saveUserStats(userId: string, stats: UserStats): void {
     localStorage.setItem(STORAGE_KEY(userId), JSON.stringify(stats));
     // Broadcast a custom event so other components can re-render
     window.dispatchEvent(new CustomEvent("obsidian-stats-updated", { detail: { userId } }));
+    
+    // Auto-sync to cloud with debounce
+    if (syncTimeouts[userId]) {
+      clearTimeout(syncTimeouts[userId]);
+    }
+    syncTimeouts[userId] = setTimeout(() => {
+      userAPI.updateProfile({ preferences: stats }).catch(e => {
+        console.warn("Failed to sync stats to cloud:", e);
+      });
+    }, 2000); // 2 second debounce
+
   } catch (e) {
     console.warn("Failed to save user stats:", e);
+  }
+}
+
+export function syncStatsFromServer(userId: string, serverStats: any): void {
+  if (!userId || !serverStats) return;
+  
+  // Basic validation that it's a UserStats object
+  if (typeof serverStats === 'object' && serverStats.userId === userId && typeof serverStats.totalXp === 'number') {
+    try {
+      localStorage.setItem(STORAGE_KEY(userId), JSON.stringify(serverStats));
+      // Broadcast update
+      window.dispatchEvent(new CustomEvent("obsidian-stats-updated", { detail: { userId } }));
+    } catch (e) {
+      console.warn("Failed to sync stats from server:", e);
+    }
   }
 }
 
