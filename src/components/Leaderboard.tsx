@@ -20,85 +20,8 @@ interface LeaderboardEntry {
   weeklyXP: number;
 }
 
-const mockData: LeaderboardEntry[] = [ 
-  {
-    id: "2", 
-    name: "Sarah Chen", 
-    avatar: "https://images.unsplash.com/photo-1617223777538-5698e655a613?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwZG9nJTIwcG9ydHJhaXR8ZW58MXx8fHwxNzU5OTY3MTQwfDA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 5280, 
-    level: 12, 
-    streak: 23, 
-    achievements: 28, 
-    rank: 1, 
-    weeklyXP: 820 
-  },
-  { 
-    id: "3", 
-    name: "Alex Kumar", 
-    avatar: "https://images.unsplash.com/photo-1738864720505-6bb1b83af524?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwZm94JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDMxNzA2fDA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 4150, 
-    level: 11, 
-    streak: 15, 
-    achievements: 21, 
-    rank: 2, 
-    weeklyXP: 610 
-  },
-  { 
-    id: "4", 
-    name: "Emma Wilson", 
-    avatar: "https://images.unsplash.com/photo-1688472977827-c7e446e49efe?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwcmFiYml0JTIwYnVubnl8ZW58MXx8fHwxNzYwMDMxNzA3fDA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 3890, 
-    level: 10, 
-    streak: 12, 
-    achievements: 19, 
-    rank: 3, 
-    weeklyXP: 580 
-  },
-  { 
-    id: "5", 
-    name: "James Park", 
-    avatar: "https://images.unsplash.com/photo-1590692464381-38f566ceaf7a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwcGFuZGElMjBwb3J0cmFpdHxlbnwxfHx8fDE3NjAwMzE3MDd8MA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 2310, 
-    level: 8, 
-    streak: 8, 
-    achievements: 11, 
-    rank: 5, 
-    weeklyXP: 380 
-  },
-  { 
-    id: "6", 
-    name: "Olivia Brown", 
-    avatar: "https://images.unsplash.com/photo-1725998488050-956dc8743df9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwb3dsJTIwYmlyZHxlbnwxfHx8fDE3NjAwMzE3MDd8MA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 2180, 
-    level: 7, 
-    streak: 6, 
-    achievements: 10, 
-    rank: 6, 
-    weeklyXP: 320 
-  },
-  { 
-    id: "7", 
-    name: "Liam Garcia", 
-    avatar: "https://images.unsplash.com/photo-1654119109097-3094c13fc6ca?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwcGVuZ3VpbiUyMHBvcnRyYWl0fGVufDF8fHx8MTc2MDAzMTcwOHww&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 1950, 
-    level: 7, 
-    streak: 5, 
-    achievements: 9, 
-    rank: 7, 
-    weeklyXP: 290 
-  },
-  { 
-    id: "8", 
-    name: "Sophia Lee", 
-    avatar: "https://images.unsplash.com/photo-1633093823511-fa9d7d5699a1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwYW5pbWFsJTIwYXZhdGFyfGVufDF8fHx8MTc2MDAzMTcwNXww&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 1820, 
-    level: 6, 
-    streak: 4, 
-    achievements: 8, 
-    rank: 8, 
-    weeklyXP: 260 
-  },
-];
+import { leaderboardAPI } from "../utils/api";
+import { computeLevel } from "../utils/userStatsStore";
 
 interface LeaderboardProps {
   userId?: string;
@@ -109,7 +32,10 @@ interface LeaderboardProps {
 export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: LeaderboardProps) {
   const [timeframe, setTimeframe] = useState<"all" | "weekly" | "monthly">("all");
   const [stats, setStats] = useState<UserStats | null>(null);
+  const [globalUsers, setGlobalUsers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
+  // Fetch local live stats
   useEffect(() => {
     if (userId) {
       setStats(getUserStats(userId));
@@ -120,8 +46,36 @@ export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: 
     }
   }, [userId]);
 
+  // Fetch global leaderboard
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      try {
+        setIsLoading(true);
+        const data = await leaderboardAPI.getGlobal();
+        if (Array.isArray(data)) {
+          setGlobalUsers(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch leaderboard:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchLeaderboard();
+  }, []);
+
   const leaderboardData = useMemo(() => {
-    const data = [...mockData];
+    const data: LeaderboardEntry[] = globalUsers.map(u => ({
+      id: u.user_id?.toString() || Math.random().toString(),
+      name: u.name || "Unknown User",
+      avatar: u.avatar_url || "",
+      xp: u.total_xp || 0,
+      level: computeLevel(u.total_xp || 0),
+      streak: u.current_streak || 0,
+      achievements: 0,
+      rank: 0,
+      weeklyXP: 0 // Not fully supported globally yet
+    }));
     
     let weeklyXP = 0;
     let totalXP = 0;
@@ -137,8 +91,11 @@ export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: 
       weeklyXP = (stats.weeklyActivity || []).reduce((sum, day) => sum + (day.xp || 0), 0);
     }
 
-    // Add current user
-    data.push({
+    // Remove the current user if they are in the fetched global list (to replace with live stats)
+    const filteredData = data.filter(u => u.id !== (userId || "current-user"));
+
+    // Add current user with live stats
+    filteredData.push({
       id: userId || "current-user",
       name: userName || "You",
       avatar: userAvatar || "https://images.unsplash.com/photo-1638639930738-11a71fca1b4e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwY2F0JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDI3NTQ2fDA&ixlib=rb-4.1.0&q=80&w=400",
@@ -151,18 +108,18 @@ export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: 
     });
 
     // Sort based on timeframe
-    data.sort((a, b) => {
+    filteredData.sort((a, b) => {
       if (timeframe === "weekly") return b.weeklyXP - a.weeklyXP;
       return b.xp - a.xp;
     });
 
     // Assign ranks
-    data.forEach((entry, idx) => {
+    filteredData.forEach((entry, idx) => {
       entry.rank = idx + 1;
     });
 
-    return data;
-  }, [stats, timeframe, userId, userName, userAvatar]);
+    return filteredData;
+  }, [stats, timeframe, userId, userName, userAvatar, globalUsers]);
 
   const currentUserEntry = leaderboardData.find(e => e.id === (userId || "current-user")) || leaderboardData[0];
 

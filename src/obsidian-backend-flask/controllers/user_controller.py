@@ -18,7 +18,7 @@ class UserController:
     @staticmethod
     def update_profile(user_id: str, data: dict):
         """Update user profile"""
-        allowed_fields = ["name", "avatar_url", "bio", "preferences"]
+        allowed_fields = ["name", "avatar_url", "bio", "preferences", "total_xp", "current_streak"]
         update_data = {k: v for k, v in data.items() if k in allowed_fields}
         
         return SupabaseService.update_record("user_profiles", user_id, update_data, "user_id")

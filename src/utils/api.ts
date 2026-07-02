@@ -1430,7 +1430,7 @@ export const userAPI = {
     return apiRequest('/api/user/profile');
   },
 
-  updateProfile: async (data: { name?: string; avatar_url?: string; bio?: string; preferences?: any }) => {
+  updateProfile: async (data: { name?: string; avatar_url?: string; bio?: string; preferences?: any; total_xp?: number; current_streak?: number }) => {
     return apiRequest('/api/user/profile', {
       method: 'PUT',
       body: JSON.stringify(data),

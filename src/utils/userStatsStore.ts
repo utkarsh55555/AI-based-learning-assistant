@@ -235,7 +235,11 @@ export function saveUserStats(userId: string, stats: UserStats): void {
       clearTimeout(syncTimeouts[userId]);
     }
     syncTimeouts[userId] = setTimeout(() => {
-      userAPI.updateProfile({ preferences: stats }).catch(e => {
+      userAPI.updateProfile({ 
+        preferences: stats,
+        total_xp: stats.totalXp,
+        current_streak: stats.currentStreak
+      }).catch(e => {
         console.warn("Failed to sync stats to cloud:", e);
       });
     }, 2000); // 2 second debounce
