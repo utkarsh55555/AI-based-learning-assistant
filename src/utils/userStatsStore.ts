@@ -197,6 +197,15 @@ export function getUserStats(userId: string): UserStats {
     const raw = localStorage.getItem(STORAGE_KEY(userId));
     if (!raw) return defaultStats(userId);
     const parsed = JSON.parse(raw) as UserStats;
+    
+    // Safety for old versions of stats
+    if (!parsed.achievements) parsed.achievements = [];
+    if (!parsed.weeklyActivity) parsed.weeklyActivity = [];
+    if (!parsed.recentActivity) parsed.recentActivity = [];
+    if (!parsed.chatSessions) parsed.chatSessions = [];
+    if (!parsed.quizHistory) parsed.quizHistory = [];
+    if (!parsed.topicProgress) parsed.topicProgress = [];
+
     // Merge in any new achievements added after the user registered
     const existingIds = new Set(parsed.achievements.map(a => a.id));
     for (const ach of ALL_ACHIEVEMENTS) {

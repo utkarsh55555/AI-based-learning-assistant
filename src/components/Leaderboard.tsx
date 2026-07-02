@@ -130,11 +130,11 @@ export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: 
     let achievements = 0;
 
     if (stats) {
-      totalXP = stats.totalXp;
-      level = stats.level;
-      streak = stats.currentStreak;
-      achievements = stats.achievements.filter(a => a.unlockedAt).length;
-      weeklyXP = stats.weeklyActivity.reduce((sum, day) => sum + day.xp, 0);
+      totalXP = stats.totalXp || 0;
+      level = stats.level || 1;
+      streak = stats.currentStreak || 0;
+      achievements = (stats.achievements || []).filter(a => a.unlockedAt).length;
+      weeklyXP = (stats.weeklyActivity || []).reduce((sum, day) => sum + (day.xp || 0), 0);
     }
 
     // Add current user
