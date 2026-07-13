@@ -46,7 +46,7 @@ def signup():
 
         # Email format
         if not validate_email(email):
-            return error_response("Invalid email format", status_code=400)
+            return error_response("Please enter a valid email address.", status_code=400)
 
         # Name length
         if not (2 <= len(name) <= 100):
@@ -85,8 +85,10 @@ def signup():
         return error_response("Registration failed", status_code=400)
 
     except Exception as e:
-        audit_log("SIGNUP", email=data.get('email', ''), status="error", detail=str(e))
-        return error_response("Registration failed. Please try again.", status_code=500)
+        # Re-raise the user-friendly message from the controller
+        err = str(e)
+        audit_log("SIGNUP", email=data.get('email', ''), status="error", detail=err)
+        return error_response(err if err else "Enter a valid email address.", status_code=400)
 
 
 # ── Login ──────────────────────────────────────────────────────────────────
@@ -113,7 +115,7 @@ def login():
         password = data['password']
 
         if not validate_email(email):
-            return error_response("Invalid email format", status_code=400)
+            return error_response("Please enter a valid email address.", status_code=400)
 
         # ── Lockout check BEFORE hitting Supabase ─────────────────────────
         lockout = check_lockout(email)
@@ -168,16 +170,16 @@ def login():
                 status_code=429,
             )
 
-        msg = "Invalid credentials."
+        msg = "No account found with this email, or the password is incorrect."
         if remaining > 0:
             msg += f" {remaining} attempt(s) remaining before lockout."
         return error_response(msg, status_code=401)
 
     except Exception as e:
-        # Don't leak internal errors to the client
+        err = str(e)
         email_safe = sanitize_string(data.get('email', ''))
-        audit_log("LOGIN_FAILURE", email=email_safe, status="exception", detail=str(e))
-        return error_response("Login failed. Please try again.", status_code=500)
+        audit_log("LOGIN_FAILURE", email=email_safe, status="exception", detail=err)
+        return error_response(err if err else "No account found with this email. Please sign up first.", status_code=401)
 
 
 # ── Logout ─────────────────────────────────────────────────────────────────

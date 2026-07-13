@@ -40,6 +40,10 @@ const getAuthToken = (): string | null => {
   return token;
 };
 
+// Auth endpoints that must NEVER fall back to mock mode.
+// These require real identity verification (Supabase / Google OAuth).
+const AUTH_ENDPOINTS = ['/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me'];
+
 // API request helper
 async function apiRequest<T>(
   endpoint: string,
@@ -67,7 +71,10 @@ async function apiRequest<T>(
     }
   }
 
-  if (useMockApi) {
+  // Auth endpoints are NEVER served from mock — always require real backend or Google OAuth
+  const isAuthEndpoint = AUTH_ENDPOINTS.some(ep => endpoint.startsWith(ep));
+
+  if (useMockApi && !isAuthEndpoint) {
     return handleMockRequest<T>(endpoint, options);
   }
 
@@ -88,7 +95,8 @@ async function apiRequest<T>(
       
       // Only fall back to mock API for true DNS/infrastructure failures, NOT for
       // AI service errors (timeouts, rate limits, etc.) which should show as errors.
-      if (response.status === 500) {
+      // Auth endpoints are excluded — they must always fail visibly.
+      if (response.status === 500 && !isAuthEndpoint) {
         const msg = (error.message || '').toLowerCase();
         const isTrueInfraFailure =
           msg.includes('getaddrinfo') ||
@@ -118,6 +126,13 @@ async function apiRequest<T>(
     );
     
     if (isNetworkError) {
+      // Auth endpoints must NEVER silently fall back to mock mode —
+      // that would allow fake accounts to be created.
+      if (isAuthEndpoint) {
+        throw new Error(
+          'Cannot reach the authentication server. Please use "Continue with Google" to sign in, or ensure the backend is running.'
+        );
+      }
       console.warn(`Connection failed to backend at ${API_BASE_URL}. Switching to client-side Mock API.`);
       useMockApi = true;
       showMockWarning();
@@ -538,72 +553,17 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
   // Simulate minimal latency for realism
   await new Promise(resolve => setTimeout(resolve, 300));
 
-  // --- AUTH ---
-  if (endpoint === '/api/auth/signup') {
-    const { email, password, name } = body;
-    const users = getMockData<any[]>('users', []);
-    const newUser = {
-      id: Math.random().toString(36).substring(7),
-      email,
-      name,
-      total_xp: 0,
-      current_streak: 0,
-      is_new_user: true
-    };
-    users.push({ ...newUser, password });
-    setMockData('users', users);
-    
-    // Set current active session user
-    setMockData('current_user', newUser);
-    return {
-      user: newUser,
-      access_token: 'mock-access-token',
-      refresh_token: 'mock-refresh-token'
-    } as any as T;
+  // ── AUTH — never served from mock ─────────────────────────────────────────
+  // All auth endpoints require real identity verification via Supabase / Google OAuth.
+  // Allowing mock auth would let anyone create an account with a fake email.
+  if (endpoint.startsWith('/api/auth/')) {
+    throw new Error(
+      'Authentication requires a real account. Please use "Continue with Google" to sign in securely.'
+    );
   }
 
-  if (endpoint === '/api/auth/login') {
-    const { email, password } = body;
-    const users = getMockData<any[]>('users', []);
-    let user = users.find(u => u.email === email);
-    
-    if (!user) {
-      // Auto-register for easy demo logins
-      user = {
-        id: Math.random().toString(36).substring(7),
-        email,
-        name: email.split('@')[0],
-        total_xp: 150,
-        current_streak: 1,
-        is_new_user: false
-      };
-      users.push({ ...user, password });
-      setMockData('users', users);
-    }
-    
-    setMockData('current_user', user);
-    return {
-      user,
-      access_token: 'mock-access-token',
-      refresh_token: 'mock-refresh-token'
-    } as any as T;
-  }
 
-  if (endpoint === '/api/auth/logout') {
-    localStorage.removeItem('mock_current_user');
-    return { message: "Logged out" } as any as T;
-  }
 
-  if (endpoint === '/api/auth/me') {
-    const user = getMockData<any>('current_user', {
-      id: 'mock-user-id',
-      email: 'student@obsidian.edu',
-      name: 'Obsidian Scholar',
-      total_xp: 2450,
-      current_streak: 7
-    });
-    return { user } as any as T;
-  }
 
   if (endpoint === '/api/user/profile' && method === 'PUT') {
     const user = getMockData<any>('current_user', {
