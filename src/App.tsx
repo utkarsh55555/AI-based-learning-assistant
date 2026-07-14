@@ -34,6 +34,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
 import { authAPI, userAPI } from "./utils/api";
+import { supabase } from "./utils/supabase";
 import {
   getUserStats,
   updateDailyStreak,
@@ -61,7 +62,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>("landing");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [user, setUser] = useState<User | null>(null);
-  const [userAvatar, setUserAvatar] = useState("https://images.unsplash.com/photo-1638639930738-11a71fca1b4e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwY2F0JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDI3NTQ2fDA&ixlib=rb-4.1.0&q=80&w=400");
+  const [userAvatar, setUserAvatar] = useState("");
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [liveStats, setLiveStats] = useState<UserStats | null>(null);
 
@@ -126,8 +127,11 @@ export default function App() {
               total_xp: currentUser.user.total_xp,
               current_streak: currentUser.user.current_streak
             });
-            if (profile.avatar || currentUser.user.avatar_url) {
-              setUserAvatar(profile.avatar || currentUser.user.avatar_url);
+            // Use avatar from custom profile, then from backend user, then from stored user
+            const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const resolvedAvatar = profile.avatar || currentUser.user.avatar_url || storedUser.avatar_url || '';
+            if (resolvedAvatar) {
+              setUserAvatar(resolvedAvatar);
             }
             // setCurrentView("dashboard"); // Prevent skipping landing page
           }
@@ -156,7 +160,7 @@ export default function App() {
     { id: "profile" as View, label: "Profile", icon: User },
   ];
 
-  const handleLogin = (userData: User) => {
+  const handleLogin = (userData: User & { avatar_url?: string }) => {
     const savedProfiles = JSON.parse(localStorage.getItem('customProfiles') || '{}');
     const profile = savedProfiles[userData.id || ''] || {};
     
@@ -167,8 +171,10 @@ export default function App() {
     };
     setUser(loggedInUser);
     
-    if (profile.avatar || userData.avatar || userData.avatar_url) {
-      setUserAvatar(profile.avatar || userData.avatar || userData.avatar_url);
+    // Resolve avatar: custom > Google OAuth avatar_url > google picture
+    const resolvedAvatar = profile.avatar || userData.avatar || userData.avatar_url || '';
+    if (resolvedAvatar) {
+      setUserAvatar(resolvedAvatar);
     }
     
     // Update daily streak on login
@@ -253,17 +259,20 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await authAPI.logout();
-      setUser(null);
-      setCurrentView("landing");
-      toast.success("Logged out successfully");
-    } catch (error: any) {
-      console.error("Logout error:", error);
-      // Still logout locally even if API call fails
-      setUser(null);
-      setCurrentView("landing");
-      toast.info("Logged out");
+      // Sign out from Supabase (clears Google OAuth session)
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.warn('Supabase signOut error (non-fatal):', e);
     }
+    try {
+      await authAPI.logout();
+    } catch (error: any) {
+      console.warn("Backend logout failed (non-fatal):", error);
+    }
+    setUser(null);
+    setUserAvatar("");
+    setCurrentView("landing");
+    toast.success("Logged out successfully");
   };
 
   // Landing Page

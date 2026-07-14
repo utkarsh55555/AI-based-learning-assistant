@@ -223,9 +223,10 @@ def get_current_user():
                     "email": result['user'].email,
                     "name": profile.get('name'),
                     "role": profile.get('role', 'student'),
-                    "avatar_url": profile.get('avatar_url'),
+                    "avatar_url": profile.get('avatar_url', ''),
                     "total_xp": profile.get('total_xp', 0),
                     "current_streak": profile.get('current_streak', 0),
+                    "is_new_user": profile.get('is_new_user', False),
                 }
             })
 

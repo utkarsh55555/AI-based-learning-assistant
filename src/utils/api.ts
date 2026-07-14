@@ -1165,6 +1165,7 @@ export const authAPI = {
         email: string;
         name: string;
         avatar_url?: string;
+        is_new_user?: boolean;
         total_xp: number;
         current_streak: number;
       };
