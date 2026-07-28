@@ -1,17 +1,18 @@
-# CodeRabbit configuration file for deep analysis of existing codebase
 language: "en-US"
-review:
-  depth: deep
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
   high_level_summary: true
   poem: false
   review_status: true
   collapse_walkthrough: false
-  ignore:
-    - "node_modules/**"
-    - "dist/**"
-    - "build/**"
-    - ".vercel/**"
-    - ".vscode/**"
-    - "tempCodeRunnerFile.*"
-    - "*.exe"
-    - "package-lock.json"
+  path_filters:
+    - "!node_modules/**"
+    - "!dist/**"
+    - "!build/**"
+    - "!.vercel/**"
+    - "!.vscode/**"
+    - "!tempCodeRunnerFile.*"
+    - "!*.exe"
+    - "!package-lock.json"
+    - "!public/frames/**"
