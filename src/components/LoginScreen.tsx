@@ -200,7 +200,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           redirectTo: window.location.origin,
           queryParams: {
             access_type: "offline",
-            prompt: "consent",
+            prompt: "select_account consent",
           },
         },
       });
