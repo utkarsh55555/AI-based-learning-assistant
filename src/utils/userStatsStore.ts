@@ -352,8 +352,8 @@ export function checkAndUnlockAchievements(stats: UserStats): string[] {
     study_60:      stats.totalStudyMinutes >= 60,
     study_600:     stats.totalStudyMinutes >= 600,
     chat_20:       totalMsgs >= 20,
-    level_5:       stats.level >= 5,
-    level_10:      stats.level >= 10,
+    level_5:       computeLevel(stats.totalXp) >= 5,
+    level_10:      computeLevel(stats.totalXp) >= 10,
   };
 
   for (const ach of stats.achievements) {

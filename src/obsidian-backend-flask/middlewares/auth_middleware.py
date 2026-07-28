@@ -59,13 +59,13 @@ def verify_token(token: str):
 
 
 def _extract_token(auth_header: str) -> str | None:
-    """Extract the raw token from a 'Bearer <token>' header."""
+    """Extract the raw token from a 'Bearer <token>' header. Only accepts proper Bearer format."""
     if not auth_header:
         return None
     parts = auth_header.split(" ", 1)
     if len(parts) == 2 and parts[0].lower() == "bearer":
         return parts[1].strip()
-    return auth_header.strip()  # Accept raw token as fallback
+    return None  # Reject malformed Authorization headers
 
 
 # ── require_auth ───────────────────────────────────────────────────────────

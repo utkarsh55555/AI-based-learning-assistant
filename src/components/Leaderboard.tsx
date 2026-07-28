@@ -65,8 +65,8 @@ export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: 
   }, []);
 
   const leaderboardData = useMemo(() => {
-    const data: LeaderboardEntry[] = globalUsers.map(u => ({
-      id: u.user_id?.toString() || Math.random().toString(),
+    const data: LeaderboardEntry[] = globalUsers.map((u, i) => ({
+      id: u.user_id?.toString() || `global-${i}`,
       name: u.name || "Unknown User",
       avatar: u.avatar_url || "",
       xp: u.total_xp || 0,

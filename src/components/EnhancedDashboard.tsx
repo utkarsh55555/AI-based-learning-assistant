@@ -113,7 +113,8 @@ export function EnhancedDashboard({ userName = "Scholar", isNewUser = false, use
     .sort((a, b) => {
       if (a.unlockedAt && b.unlockedAt) return new Date(b.unlockedAt).getTime() - new Date(a.unlockedAt).getTime();
       if (a.unlockedAt) return -1;
-      return 1;
+      if (b.unlockedAt) return 1;
+      return 0;
     })
     .slice(0, 6);
 
@@ -156,7 +157,7 @@ export function EnhancedDashboard({ userName = "Scholar", isNewUser = false, use
             <div className="text-right min-w-[120px]">
               <p className="text-sm text-muted-foreground mb-1">Level {stats.level} Progress</p>
               <Progress
-                value={(xpInfo.current / xpInfo.needed) * 100}
+                value={xpInfo.needed === 0 ? 100 : (xpInfo.current / xpInfo.needed) * 100}
                 className="h-2 mb-1"
               />
               <p className="text-xs text-muted-foreground">

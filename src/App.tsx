@@ -464,7 +464,7 @@ export default function App() {
                   <div className="w-full bg-blue-950/50 rounded-full h-2 border border-blue-900/30">
                     {(() => {
                       const xpInfo = liveStats ? xpForNextLevel(liveStats.totalXp) : { current: 0, needed: 100 };
-                      const pct = Math.min(100, (xpInfo.current / xpInfo.needed) * 100);
+                      const pct = xpInfo.needed === 0 ? 100 : Math.min(100, (xpInfo.current / xpInfo.needed) * 100);
                       return <div className="gradient-blue h-2 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]" style={{ width: `${pct}%` }} />;
                     })()}
                   </div>

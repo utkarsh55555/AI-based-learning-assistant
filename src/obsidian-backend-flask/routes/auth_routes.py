@@ -19,6 +19,7 @@ from utils.response import success_response, error_response
 from utils.validator import validate_required_fields, validate_email
 from utils.sanitize import sanitize_string, validate_password_strength
 from utils.lockout import check_lockout, record_failure, record_success
+from config.settings import settings
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -158,7 +159,7 @@ def login():
 
         # Invalid credentials
         lockout_result = record_failure(email)
-        remaining = max(0, 5 - lockout_result["attempts"])
+        remaining = max(0, settings.LOCKOUT_MAX_ATTEMPTS - lockout_result["attempts"])
         audit_log("LOGIN_FAILURE", email=email, attempts=lockout_result["attempts"])
 
         if lockout_result["locked"]:

@@ -77,8 +77,8 @@ class Settings:
         ]
         
         security_warnings = []
-        if cls.SECRET_KEY == "dev-secret-key-change-in-production":
-            security_warnings.append("SECRET_KEY is using insecure default!")
+        if not os.getenv("SECRET_KEY"):
+            security_warnings.append("SECRET_KEY is not set; using an ephemeral random value — set a persistent key in production!")
         if not cls.CSRF_SECRET_KEY:
             security_warnings.append("CSRF_SECRET_KEY is not set!")
         if cls.CORS_ORIGINS == "*":

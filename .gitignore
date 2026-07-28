@@ -42,4 +42,7 @@ src/obsidian-backend-flask/__pycache__/
 tempCodeRunnerFile*
 *.log
 
-.vercel
+# Debug output / test artifacts
+*_test.json
+notes_test.json
+mindmap_test.json

@@ -143,7 +143,7 @@ export function ProfileSection({
   const handleSelectAvatar = (avatarUrl: string) => {
     setSelectedAvatar(avatarUrl);
     if (onProfileUpdate) {
-      onProfileUpdate({ name: userName, email: userEmail, avatar: avatarUrl });
+      onProfileUpdate({ name: editedName, email: editedEmail, avatar: avatarUrl });
     }
     setIsSelectingAvatar(false);
     toast.success("Avatar updated! 🎨");
@@ -158,7 +158,7 @@ export function ProfileSection({
           const newAvatar = event.target.result as string;
           setSelectedAvatar(newAvatar);
           if (onProfileUpdate) {
-            onProfileUpdate({ name: userName, email: userEmail, avatar: newAvatar });
+            onProfileUpdate({ name: editedName, email: editedEmail, avatar: newAvatar });
           }
           toast.success("Custom avatar uploaded! 🎉");
         }
@@ -502,7 +502,7 @@ export function ProfileSection({
             </div>
             {/* Overall progress bar */}
             <Progress
-              value={stats ? (unlockedCount / stats.achievements.length) * 100 : 0}
+              value={stats?.achievements.length ? (unlockedCount / stats.achievements.length) * 100 : 0}
               className="h-2"
             />
           </div>

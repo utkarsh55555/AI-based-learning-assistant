@@ -194,8 +194,8 @@ class AuthController:
                     profile = profile_data
                     print(f"[INFO] Auto-created user_profile for Google OAuth user: {user.id} ({email})")
                 except Exception as profile_error:
-                    print(f"[WARN] Could not auto-create profile for {user.id}: {profile_error}")
-                    profile = profile_data
+                    print(f"[ERROR] Could not auto-create profile for {user.id}: {profile_error}")
+                    raise Exception(f"Profile creation failed — please try signing in again. ({profile_error})")
 
             return {
                 "user": user,
