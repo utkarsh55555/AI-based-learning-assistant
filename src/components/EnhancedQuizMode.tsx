@@ -242,17 +242,21 @@ export function EnhancedQuizMode({ userId = "" }: { userId?: string }) {
       return;
     }
 
-    // Require camera for ALL modes before starting
-    const cameraGranted = await requestCameraAccess();
-    if (cameraGranted) {
+    if (quizMode === "practice") {
+      // Camera is optional for practice — attempt it but don't block on denial
+      requestCameraAccess().catch(() => {});
       setIsStarted(true);
       setStartTime(Date.now());
-      if (quizMode === "practice") {
-        toast.success("Quiz started!");
-      }
+      toast.success("Quiz started! (Practice mode — camera optional)");
     } else {
-      // If camera access is denied, we do not start the quiz
-      toast.error("Camera access is mandatory to start the quiz.");
+      // Require camera for exam / timed modes
+      const cameraGranted = await requestCameraAccess();
+      if (cameraGranted) {
+        setIsStarted(true);
+        setStartTime(Date.now());
+      } else {
+        toast.error("Camera access is required to start this quiz mode.");
+      }
     }
   };
 

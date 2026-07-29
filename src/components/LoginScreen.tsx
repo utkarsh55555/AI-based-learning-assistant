@@ -65,23 +65,22 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           // Try backend first (creates XP profile etc.), fall back to Supabase data if offline
           try {
             const currentUser = await authAPI.getCurrentUser();
-            if (currentUser?.user) {
-              const u = currentUser.user;
-              const userPayload = {
-                id: u.id,
-                name: u.name || googleName,
-                email: u.email || googleEmail,
-                avatar_url: u.avatar_url || googleAvatar,
-                isNewUser: u.is_new_user ?? false,
-                total_xp: u.total_xp,
-                current_streak: u.current_streak,
-              };
-              localStorage.setItem("user", JSON.stringify(userPayload));
-              onLogin(userPayload);
-              toast.success(`Welcome, ${userPayload.name}! 🎉`);
-            }
+            if (!currentUser?.user) throw new Error("Backend returned no user object");
+            const u = currentUser.user;
+            const userPayload = {
+              id: u.id,
+              name: u.name || googleName,
+              email: u.email || googleEmail,
+              avatar_url: u.avatar_url || googleAvatar,
+              isNewUser: u.is_new_user ?? false,
+              total_xp: u.total_xp,
+              current_streak: u.current_streak,
+            };
+            localStorage.setItem("user", JSON.stringify(userPayload));
+            onLogin(userPayload);
+            toast.success(`Welcome, ${userPayload.name}! 🎉`);
           } catch (backendError: any) {
-            console.warn("[OAuth] Backend offline, using Supabase session:", backendError.message);
+            console.warn("[OAuth] Backend offline or returned no user, using Supabase session:", backendError.message);
             const fallbackUser = {
               id: session.user.id,
               name: googleName,

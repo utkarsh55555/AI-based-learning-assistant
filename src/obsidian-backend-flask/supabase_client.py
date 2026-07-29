@@ -35,12 +35,37 @@ def get_supabase_admin_client() -> Client:
         # Debug output should never break startup
         pass
 
-    # Verify the service key looks valid (accepts both legacy JWT 'eyJ' and new 'sb_secret_' format)
-    valid_prefixes = ('eyJ', 'sb_secret_')
-    if not settings.SUPABASE_SERVICE_KEY.startswith(valid_prefixes):
+    # Verify the service key looks valid
+    # New format: starts with 'sb_secret_'
+    # Legacy JWT format: starts with 'eyJ' BUT anon keys also start with 'eyJ',
+    # so for legacy JWTs we must decode and verify the role claim == 'service_role'
+    key = settings.SUPABASE_SERVICE_KEY
+    if key.startswith('sb_secret_'):
+        pass  # New format — always a service key
+    elif key.startswith('eyJ'):
+        # Decode the JWT payload (without verification — just inspect the claims)
+        import base64, json as _json
+        try:
+            parts = key.split('.')
+            if len(parts) != 3:
+                raise ValueError("Malformed JWT: expected 3 segments")
+            # Add padding as required by base64
+            padded = parts[1] + '=' * (4 - len(parts[1]) % 4)
+            payload = _json.loads(base64.urlsafe_b64decode(padded))
+            role = payload.get('role', '')
+            if role != 'service_role':
+                raise ValueError(
+                    f"SUPABASE_SERVICE_KEY has role '{role}' — expected 'service_role'. "
+                    "You may have pasted the anon key instead of the service_role key."
+                )
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not decode SUPABASE_SERVICE_KEY JWT: {e}")
+    else:
         raise ValueError(
             "SUPABASE_SERVICE_KEY appears to be invalid. "
-            "Service role keys should start with 'eyJ' (legacy JWT) or 'sb_secret_' (new format). "
+            "Service role keys should start with 'sb_secret_' (new format) or 'eyJ' (legacy JWT). "
             "Make sure you're using the 'service_role' / 'secret' key from Supabase Project Settings → API Keys."
         )
 

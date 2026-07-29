@@ -238,7 +238,8 @@ export default function App() {
     try {
       await userAPI.updateProfile({
         name: updatedProfile.name,
-        avatar_url: updatedProfile.avatar
+        avatar_url: updatedProfile.avatar,
+        email: updatedProfile.email,
       });
     } catch (error) {
       console.error("Failed to sync profile to backend:", error);

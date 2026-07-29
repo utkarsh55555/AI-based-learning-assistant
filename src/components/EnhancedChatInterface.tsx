@@ -59,6 +59,16 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clear typing timer on unmount to prevent state updates on unmounted component
+  useEffect(() => {
+    return () => {
+      if (typingTimerRef.current) {
+        clearInterval(typingTimerRef.current);
+      }
+    };
+  }, []);
 
   const loadHistory = useCallback(() => {
     if (!userId) return;
@@ -149,36 +159,36 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
       const response = await tutorAPI.chat(finalMessage, conversationHistory);
       const responseText = response.response;
 
-      // Typing animation
-      let currentText = "";
+      // Typing animation — single cancellable interval instead of N setTimeout calls
+      let i = 0;
       const typingSpeed = 20;
+      typingTimerRef.current = setInterval(() => {
+        i += 1;
+        setTypingText(responseText.slice(0, i));
 
-      for (let i = 0; i <= responseText.length; i++) {
-        setTimeout(() => {
-          currentText = responseText.slice(0, i);
-          setTypingText(currentText);
+        if (i >= responseText.length) {
+          clearInterval(typingTimerRef.current!);
+          typingTimerRef.current = null;
 
-          if (i === responseText.length) {
-            const aiResponse: Message = { role: "assistant", content: responseText };
-            setMessages(prev => [...prev, aiResponse]);
-            setIsTyping(false);
-            setTypingText("");
+          const aiResponse: Message = { role: "assistant", content: responseText };
+          setMessages(prev => [...prev, aiResponse]);
+          setIsTyping(false);
+          setTypingText("");
 
-            // Persist assistant message
-            if (userId) {
-              recordChatMessage(userId, "assistant", responseText, sessionId);
-            }
-
-            if (voiceEnabled && "speechSynthesis" in window) {
-              const utterance = new SpeechSynthesisUtterance(responseText);
-              utterance.rate = 1.1;
-              utterance.pitch = 1;
-              window.speechSynthesis.speak(utterance);
-              toast.info("🔊 Playing voice response...");
-            }
+          // Persist assistant message
+          if (userId) {
+            recordChatMessage(userId, "assistant", responseText, sessionId);
           }
-        }, i * typingSpeed);
-      }
+
+          if (voiceEnabled && "speechSynthesis" in window) {
+            const utterance = new SpeechSynthesisUtterance(responseText);
+            utterance.rate = 1.1;
+            utterance.pitch = 1;
+            window.speechSynthesis.speak(utterance);
+            toast.info("🔊 Playing voice response...");
+          }
+        }
+      }, typingSpeed);
     } catch (error: any) {
       console.error("Chat error:", error);
       toast.error(error.message || "Failed to get AI response. Please try again.");
@@ -245,7 +255,9 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
       } else {
         // For PDF, DOCX, TXT, etc., extract text via backend
         const data = await tutorAPI.uploadDocument(file);
-        setFileContextText(data.extracted_text);
+        const extracted = typeof data?.extracted_text === 'string' ? data.extracted_text.trim() : '';
+        if (!extracted) throw new Error('No text could be extracted from this document');
+        setFileContextText(extracted);
         setIsUploadingFile(false);
       }
     } catch (error) {
