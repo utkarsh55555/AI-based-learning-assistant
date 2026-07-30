@@ -404,6 +404,10 @@ export function recordChatMessage(
   }
 
   session.messages.push({ role, content, timestamp: new Date().toISOString() });
+  // Cap messages per session to 200 (100 exchanges) to prevent localStorage overflow
+  if (session.messages.length > 200) {
+    session.messages = session.messages.slice(-200);
+  }
   session.messageCount = session.messages.length;
 
   if (role === "user") {

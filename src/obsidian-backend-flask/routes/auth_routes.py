@@ -10,7 +10,7 @@ Authentication endpoints with:
   - Audit logging
 """
 
-from flask import Blueprint, request
+from flask import Blueprint, request, make_response
 from controllers.auth_controller import AuthController
 from middlewares.rate_limiter import login_limit, signup_limit
 from middlewares.audit_logger import audit_log
@@ -20,6 +20,14 @@ from utils.validator import validate_required_fields, validate_email
 from utils.sanitize import sanitize_string, validate_password_strength
 from utils.lockout import check_lockout, record_failure, record_success
 from config.settings import settings
+
+
+def _no_cache(response):
+    """Apply no-store cache headers — must be used on every auth response that contains tokens."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -71,7 +79,7 @@ def signup():
 
             audit_log("SIGNUP", email=email, user_id=result['user'].id, status="success")
 
-            return success_response({
+            resp = success_response({
                 "user": {
                     "id": result['user'].id,
                     "email": result['user'].email,
@@ -81,6 +89,7 @@ def signup():
                 "access_token": access_token,
                 "refresh_token": refresh_token,
             }, "User registered successfully", 201)
+            return _no_cache(resp)
 
         audit_log("SIGNUP", email=email, status="failed")
         return error_response("Registration failed", status_code=400)
@@ -142,7 +151,7 @@ def login():
 
             audit_log("LOGIN_SUCCESS", email=email, user_id=result['user'].id)
 
-            return success_response({
+            resp = success_response({
                 "user": {
                     "id": result['user'].id,
                     "email": result['user'].email,
@@ -156,6 +165,7 @@ def login():
                 "access_token": session.access_token,
                 "refresh_token": session.refresh_token,
             }, "Login successful")
+            return _no_cache(resp)
 
         # Invalid credentials
         lockout_result = record_failure(email)

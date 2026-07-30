@@ -1,8 +1,11 @@
+import logging
 from services.ai_tutor_service import AITutorService
 from services.supabase_service import SupabaseService
 import PyPDF2
 import docx
 import io
+
+logger = logging.getLogger(__name__)
 
 class TutorController:
     @staticmethod
@@ -37,7 +40,7 @@ class TutorController:
             SupabaseService.create_record("chat_conversations", conversation_data)
         except Exception as e:
             # Log the error but don't fail the chat response
-            print(f"[WARNING] Failed to save chat_conversation: {e}")
+            logger.warning("Failed to save chat_conversation: %s", e)
         
         return {
             "response": response,

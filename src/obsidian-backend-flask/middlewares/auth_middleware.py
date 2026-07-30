@@ -15,11 +15,14 @@ DB round-trip.
 """
 
 import time
+import logging
 from functools import wraps
 from flask import request
 from utils.response import error_response
 from config.settings import settings
 from supabase_client import get_supabase
+
+logger = logging.getLogger(__name__)
 
 
 # ── Token verification ─────────────────────────────────────────────────────
@@ -54,7 +57,7 @@ def verify_token(token: str):
         return response
 
     except Exception as e:
-        print(f"[AUTH] Token verification error: {str(e)}")
+        logger.warning("[AUTH] Token verification error: %s", e)
         return None
 
 

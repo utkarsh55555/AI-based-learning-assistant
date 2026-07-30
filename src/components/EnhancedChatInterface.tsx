@@ -152,8 +152,10 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
     }
 
     try {
+      // Cap to last 20 user/assistant messages to prevent megabyte payloads and context overflow
       const conversationHistory = currentMessages
-        .filter(msg => msg.role !== "system" && msg !== userMessage) // Filter out the newly added user message to prevent duplication
+        .filter(msg => msg.role !== "system" && msg !== userMessage) // exclude system + just-added user msg
+        .slice(-20)
         .map(msg => ({ role: msg.role, content: msg.content }));
 
       const response = await tutorAPI.chat(finalMessage, conversationHistory);

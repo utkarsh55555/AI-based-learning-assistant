@@ -38,9 +38,18 @@ src/obsidian-backend-flask/__pycache__/
 *.sln
 *.sw?
 
-# Temporary files
+# Temporary files and compiled binaries
 tempCodeRunnerFile*
+*.exe
+*.o
+*.out
 *.log
+audit.log
+src/obsidian-backend-flask/audit.log
+
+# Stray gitignore without dot prefix
+gitignore
+gitignore.pub
 
 # Debug output / test artifacts
 *_test.json

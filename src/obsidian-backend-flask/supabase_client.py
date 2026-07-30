@@ -1,5 +1,8 @@
+import logging
 from supabase import create_client, Client
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 def get_supabase_client() -> Client:
     """Get Supabase client instance"""
@@ -23,14 +26,14 @@ def get_supabase_admin_client() -> Client:
             "Please set SUPABASE_SERVICE_KEY (service_role key) in src/obsidian-backend-flask/.env file."
         )
 
-    # Debug: print a short preview of the configured keys so we can verify at runtime.
-    # This is safe for development logs because it only shows a prefix, not the full key.
+    # Debug: log a short preview of the configured keys so we can verify at runtime.
+    # Uses the module logger at DEBUG level — suppressed in production.
     try:
         anon_preview = (settings.SUPABASE_ANON_KEY or "None")[:20]
         service_preview = (settings.SUPABASE_SERVICE_KEY or "None")[:20]
-        print(f"[SUPABASE DEBUG] SUPABASE_URL: {settings.SUPABASE_URL}")
-        print(f"[SUPABASE DEBUG] ANON KEY PREFIX: {anon_preview}")
-        print(f"[SUPABASE DEBUG] SERVICE KEY PREFIX: {service_preview}")
+        logger.debug("[SUPABASE] SUPABASE_URL: %s", settings.SUPABASE_URL)
+        logger.debug("[SUPABASE] ANON KEY PREFIX: %s", anon_preview)
+        logger.debug("[SUPABASE] SERVICE KEY PREFIX: %s", service_preview)
     except Exception:
         # Debug output should never break startup
         pass
@@ -75,7 +78,7 @@ def get_supabase_admin_client() -> Client:
     try:
         # This will succeed even on an empty table; it only verifies permissions.
         client.table("user_profiles").select("*", count="exact").limit(1).execute()
-        print("[SUPABASE DEBUG] Admin client test query to 'user_profiles' succeeded.")
+        logger.debug("[SUPABASE] Admin client test query to 'user_profiles' succeeded.")
     except Exception as e:
         raise ValueError(
             "Supabase admin client could not access 'user_profiles'. "
