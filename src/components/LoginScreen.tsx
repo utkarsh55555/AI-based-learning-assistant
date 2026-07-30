@@ -38,6 +38,9 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   // ── Google OAuth callback handler ──────────────────────────────────────────
   // Only fires on a fresh redirect from Google (has access_token or code in URL)
   useEffect(() => {
+    // supabase is null when VITE_SUPABASE_ANON_KEY is not configured
+    if (!supabase) return;
+
     const hash = window.location.hash;
     const isFreshOAuthCallback =
       hash.includes("access_token") ||
@@ -193,6 +196,9 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
     setIsGoogleLoading(true);
     try {
+      if (!supabase) {
+        throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to Vercel environment variables.");
+      }
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
