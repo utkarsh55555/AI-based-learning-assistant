@@ -1,9 +1,13 @@
 import { toast } from "sonner";
+import { getCsrfToken, clearSession as secClearSession, isTokenValid } from './security';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '';
 
 let useMockApi = false;
 let toastShown = false;
+
+// HTTP methods that require a CSRF token
+const CSRF_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 function showMockWarning() {
   if (!toastShown) {
@@ -22,15 +26,23 @@ function showMockWarning() {
 // Get auth token from localStorage
 const getAuthToken = (): string | null => {
   const token = localStorage.getItem('access_token');
-  if (token && token.split('.').length !== 3 && token !== 'mock-access-token') {
-    console.warn('Invalid token format detected, clearing token');
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
+  // If they have the mock token, clear it so they are forced to log in with the real backend
+  if (token === 'mock-access-token') {
+    console.warn('Mock token detected, clearing session to connect to real backend');
+    secClearSession();
+    return null;
+  }
+  if (token && !isTokenValid(token)) {
+    console.warn('Invalid token format detected, clearing session');
+    secClearSession();
     return null;
   }
   return token;
 };
+
+// Auth endpoints that must NEVER fall back to mock mode.
+// These require real identity verification (Supabase / Google OAuth).
+const AUTH_ENDPOINTS = ['/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me'];
 
 // API request helper
 async function apiRequest<T>(
@@ -38,6 +50,8 @@ async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = getAuthToken();
+  const method = (options.method || 'GET').toUpperCase();
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...options.headers as Record<string, string>,
@@ -47,7 +61,20 @@ async function apiRequest<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  if (useMockApi) {
+  // Attach CSRF token for all state-changing requests
+  if (CSRF_METHODS.has(method) && !useMockApi) {
+    try {
+      const csrfToken = await getCsrfToken();
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+    } catch {
+      // Non-fatal — backend will reject if CSRF is strictly required
+    }
+  }
+
+  // Auth endpoints are NEVER served from mock — always require real backend or Google OAuth
+  const isAuthEndpoint = AUTH_ENDPOINTS.some(ep => endpoint.startsWith(ep));
+
+  if (useMockApi && !isAuthEndpoint) {
     return handleMockRequest<T>(endpoint, options);
   }
 
@@ -60,28 +87,52 @@ async function apiRequest<T>(
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Request failed' }));
       
-      // If auth error, clear tokens and redirect to login
+      // If auth error, clear tokens and CSRF cache
       if (response.status === 401 || (error.message && error.message.includes('token'))) {
-        console.warn('Auth error detected, clearing tokens');
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('user');
+        console.warn('Auth error detected, clearing session');
+        secClearSession();
       }
       
-      throw new Error(error.message || `HTTP error! status: ${response.status}`);
+      // Only fall back to mock API for true DNS/infrastructure failures, NOT for
+      // AI service errors (timeouts, rate limits, etc.) which should show as errors.
+      // Auth endpoints are excluded — they must always fail visibly.
+      if (response.status === 500 && !isAuthEndpoint) {
+        const msg = (error.message || '').toLowerCase();
+        const isTrueInfraFailure =
+          msg.includes('getaddrinfo') ||
+          msg.includes('name or service not known') ||
+          (msg.includes('supabase') && msg.includes('connection'));
+        
+        if (isTrueInfraFailure) {
+          console.warn(`Backend infrastructure unreachable: ${error.message}. Switching to client-side Mock API.`);
+          useMockApi = true;
+          showMockWarning();
+          return handleMockRequest<T>(endpoint, options);
+        }
+      }
+      
+      throw new Error(error.error || error.message || `HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
     return data.data || data;
   } catch (error: any) {
-    // Handle network errors (backend not running, CORS, etc.)
+    // Only handle true network failures (server completely unreachable)
+    // NOT application-level errors that happen to contain 'failed' in the message
     const isNetworkError = error.name === 'TypeError' && (
       error.message.toLowerCase().includes('fetch') || 
-      error.message.toLowerCase().includes('network') ||
-      error.message.toLowerCase().includes('failed')
+      error.message.toLowerCase().includes('networkerror') ||
+      error.message === 'Failed to fetch'
     );
     
     if (isNetworkError) {
+      // Auth endpoints must NEVER silently fall back to mock mode —
+      // that would allow fake accounts to be created.
+      if (isAuthEndpoint) {
+        throw new Error(
+          'Cannot reach the authentication server. Please use "Continue with Google" to sign in, or ensure the backend is running.'
+        );
+      }
       console.warn(`Connection failed to backend at ${API_BASE_URL}. Switching to client-side Mock API.`);
       useMockApi = true;
       showMockWarning();
@@ -502,63 +553,19 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
   // Simulate minimal latency for realism
   await new Promise(resolve => setTimeout(resolve, 300));
 
-  // --- AUTH ---
-  if (endpoint === '/api/auth/signup') {
-    const { email, password, name } = body;
-    const users = getMockData<any[]>('users', []);
-    const newUser = {
-      id: Math.random().toString(36).substring(7),
-      email,
-      name,
-      total_xp: 0,
-      current_streak: 0,
-      is_new_user: true
-    };
-    users.push({ ...newUser, password });
-    setMockData('users', users);
-    
-    // Set current active session user
-    setMockData('current_user', newUser);
-    return {
-      user: newUser,
-      access_token: 'mock-access-token',
-      refresh_token: 'mock-refresh-token'
-    } as any as T;
+  // ── AUTH — never served from mock ─────────────────────────────────────────
+  // All auth endpoints require real identity verification via Supabase / Google OAuth.
+  // Allowing mock auth would let anyone create an account with a fake email.
+  if (endpoint.startsWith('/api/auth/')) {
+    throw new Error(
+      'Authentication requires a real account. Please use "Continue with Google" to sign in securely.'
+    );
   }
 
-  if (endpoint === '/api/auth/login') {
-    const { email, password } = body;
-    const users = getMockData<any[]>('users', []);
-    let user = users.find(u => u.email === email);
-    
-    if (!user) {
-      // Auto-register for easy demo logins
-      user = {
-        id: Math.random().toString(36).substring(7),
-        email,
-        name: email.split('@')[0],
-        total_xp: 150,
-        current_streak: 1,
-        is_new_user: false
-      };
-      users.push({ ...user, password });
-      setMockData('users', users);
-    }
-    
-    setMockData('current_user', user);
-    return {
-      user,
-      access_token: 'mock-access-token',
-      refresh_token: 'mock-refresh-token'
-    } as any as T;
-  }
 
-  if (endpoint === '/api/auth/logout') {
-    localStorage.removeItem('mock_current_user');
-    return { message: "Logged out" } as any as T;
-  }
 
-  if (endpoint === '/api/auth/me') {
+
+  if (endpoint === '/api/user/profile' && method === 'PUT') {
     const user = getMockData<any>('current_user', {
       id: 'mock-user-id',
       email: 'student@obsidian.edu',
@@ -566,7 +573,24 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
       total_xp: 2450,
       current_streak: 7
     });
-    return { user } as any as T;
+    
+    const updatedUser = {
+      ...user,
+      name: body.name || user.name,
+      avatar_url: body.avatar_url || user.avatar_url
+    };
+    
+    setMockData('current_user', updatedUser);
+    
+    // Also update in users array
+    const users = getMockData<any[]>('users', []);
+    const idx = users.findIndex(u => u.id === user.id);
+    if (idx !== -1) {
+      users[idx] = updatedUser;
+      setMockData('users', users);
+    }
+    
+    return updatedUser as any as T;
   }
 
   // --- TUTOR / CHAT ---
@@ -1141,6 +1165,7 @@ export const authAPI = {
         email: string;
         name: string;
         avatar_url?: string;
+        is_new_user?: boolean;
         total_xp: number;
         current_streak: number;
       };
@@ -1150,7 +1175,7 @@ export const authAPI = {
 
 // Tutor/Chat API
 export const tutorAPI = {
-  chat: async (message: string, conversationHistory: any[] = []) => {
+  chat: async (message: any, conversationHistory: any[] = []) => {
     return apiRequest<{
       response: string;
       conversation_history: any[];
@@ -1165,6 +1190,32 @@ export const tutorAPI = {
       method: 'POST',
       body: JSON.stringify({ topic, level }),
     });
+  },
+
+  uploadDocument: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // We can't use the standard apiRequest wrapper easily for FormData because it stringifies body,
+    // so we make a direct fetch call here with the auth token.
+    const token = localStorage.getItem('access_token');
+    
+    const baseUrl = (import.meta as any).env?.VITE_API_URL || '';
+      
+    const response = await fetch(`${baseUrl}/api/tutor/upload`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to upload document');
+    }
+    
+    return response.json().then(data => data.data || data);
   },
 };
 
@@ -1366,7 +1417,7 @@ export const userAPI = {
     return apiRequest('/api/user/profile');
   },
 
-  updateProfile: async (data: { name?: string; avatar_url?: string; bio?: string; preferences?: any }) => {
+  updateProfile: async (data: { name?: string; avatar_url?: string; bio?: string; preferences?: any; total_xp?: number; current_streak?: number }) => {
     return apiRequest('/api/user/profile', {
       method: 'PUT',
       body: JSON.stringify(data),

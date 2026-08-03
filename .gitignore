@@ -3,6 +3,11 @@ node_modules/
 dist/
 build/
 .env
+# Allow the example file
+!.env.example
+
+# Vercel
+.vercel/
 .env.local
 .env.development.local
 .env.test.local
@@ -33,6 +38,20 @@ src/obsidian-backend-flask/__pycache__/
 *.sln
 *.sw?
 
-# Temporary files
+# Temporary files and compiled binaries
 tempCodeRunnerFile*
+*.exe
+*.o
+*.out
 *.log
+audit.log
+src/obsidian-backend-flask/audit.log
+
+# Stray gitignore without dot prefix
+gitignore
+gitignore.pub
+
+# Debug output / test artifacts
+*_test.json
+notes_test.json
+mindmap_test.json

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocalStorage } from "../utils/useLocalStorage";
 import { Card } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -7,7 +8,6 @@ import { Label } from "./ui/label";
 import { Calendar, Clock, BookOpen, Plus, CheckCircle2, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner@2.0.3";
-import { studyAPI } from "../utils/api";
 
 interface StudyTask {
   id: string;
@@ -20,10 +20,11 @@ interface StudyTask {
 }
 
 export function StudyPlanner() {
-  const [tasks, setTasks] = useState<StudyTask[]>([]);
+  const [tasks, setTasks] = useLocalStorage<StudyTask[]>("studyTasks", []);
   const [newTaskSubject, setNewTaskSubject] = useState("");
   const [newTaskTopic, setNewTaskTopic] = useState("");
   const [newTaskDuration, setNewTaskDuration] = useState("30 min");
+  const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTime, setNewTaskTime] = useState("10:00 AM");
   const [newTaskPriority, setNewTaskPriority] = useState<"high" | "medium" | "low">("medium");
 
@@ -91,7 +92,10 @@ export function StudyPlanner() {
             <h2 className="text-3xl mb-2">Study Planner</h2>
             <p className="text-muted-foreground">Your personalized learning schedule</p>
           </div>
-          <Button className="gradient-blue hover:opacity-90 neon-border">
+          <Button 
+            className="gradient-blue hover:opacity-90 neon-border"
+            onClick={() => setShowAddTask(!showAddTask)}
+          >
             <Plus className="w-4 h-4 mr-2" />
             Add Task
           </Button>
@@ -111,68 +115,70 @@ export function StudyPlanner() {
             </div>
 
             {/* Add Task Form */}
-            <div className="space-y-4">
-              <div>
-                <Label className="mb-3 block">Subject</Label>
-                <input
-                  type="text"
-                  value={newTaskSubject}
-                  onChange={(e) => setNewTaskSubject(e.target.value)}
-                  placeholder="e.g., Mathematics, Physics, CS"
-                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
-                />
-              </div>
-              <div>
-                <Label className="mb-3 block">Topic</Label>
-                <input
-                  type="text"
-                  value={newTaskTopic}
-                  onChange={(e) => setNewTaskTopic(e.target.value)}
-                  placeholder="e.g., Complete Calculus Practice Set"
-                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
-                />
-              </div>
-              <div>
-                <Label className="mb-3 block">Duration</Label>
-                <input
-                  type="text"
-                  value={newTaskDuration}
-                  onChange={(e) => setNewTaskDuration(e.target.value)}
-                  placeholder="e.g., 30 min"
-                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
-                />
-              </div>
-              <div>
-                <Label className="mb-3 block">Time</Label>
-                <input
-                  type="text"
-                  value={newTaskTime}
-                  onChange={(e) => setNewTaskTime(e.target.value)}
-                  placeholder="e.g., 10:00 AM"
-                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
-                />
-              </div>
-              <div>
-                <Label className="mb-3 block">Priority</Label>
-                <select
-                  value={newTaskPriority}
-                  onChange={(e) => setNewTaskPriority(e.target.value as "high" | "medium" | "low")}
-                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
+            {showAddTask && (
+              <div className="space-y-4 mb-6">
+                <div>
+                  <Label className="mb-3 block">Subject</Label>
+                  <input
+                    type="text"
+                    value={newTaskSubject}
+                    onChange={(e) => setNewTaskSubject(e.target.value)}
+                    placeholder="e.g., Mathematics, Physics, CS"
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-3 block">Topic</Label>
+                  <input
+                    type="text"
+                    value={newTaskTopic}
+                    onChange={(e) => setNewTaskTopic(e.target.value)}
+                    placeholder="e.g., Complete Calculus Practice Set"
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-3 block">Duration</Label>
+                  <input
+                    type="text"
+                    value={newTaskDuration}
+                    onChange={(e) => setNewTaskDuration(e.target.value)}
+                    placeholder="e.g., 30 min"
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-3 block">Time</Label>
+                  <input
+                    type="text"
+                    value={newTaskTime}
+                    onChange={(e) => setNewTaskTime(e.target.value)}
+                    placeholder="e.g., 10:00 AM"
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-3 block">Priority</Label>
+                  <select
+                    value={newTaskPriority}
+                    onChange={(e) => setNewTaskPriority(e.target.value as "high" | "medium" | "low")}
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
+                  >
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+                <Button
+                  onClick={addTask}
+                  disabled={!newTaskSubject.trim() || !newTaskTopic.trim()}
+                  className="w-full gradient-blue hover:opacity-90 py-6 neon-border"
                 >
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Save Task
+                </Button>
               </div>
-              <Button
-                onClick={addTask}
-                disabled={!newTaskSubject.trim() || !newTaskTopic.trim()}
-                className="w-full gradient-blue hover:opacity-90 py-6 neon-border"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Add Task
-              </Button>
-            </div>
+            )}
 
             <div className="space-y-3">
               {tasks.map((task, index) => (

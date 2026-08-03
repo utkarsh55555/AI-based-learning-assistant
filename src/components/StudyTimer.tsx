@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocalStorage } from "../utils/useLocalStorage";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Progress } from "./ui/progress";
@@ -9,6 +10,7 @@ import { Play, Pause, RotateCcw, Clock, Coffee, Target, Volume2, VolumeX, Settin
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+import { recordStudySession } from "../utils/userStatsStore";
 
 type TimerMode = "focus" | "short-break" | "long-break" | "mid-break";
 
@@ -31,7 +33,7 @@ interface Session {
   completedAt: Date;
 }
 
-export function StudyTimer() {
+export function StudyTimer({ userId = "" }: { userId?: string }) {
   const [mode, setMode] = useState<TimerMode>("focus");
   const [preset, setPreset] = useState<string>("classic");
   const [customDuration, setCustomDuration] = useState<number>(25);
@@ -39,9 +41,9 @@ export function StudyTimer() {
   const [timeLeft, setTimeLeft] = useState(presets.classic.focus * 60);
   const [initialTime, setInitialTime] = useState(presets.classic.focus * 60);
   const [isRunning, setIsRunning] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [pomodorosCompleted, setPomodorosCompleted] = useState(0);
+  const [sessions, setSessions] = useLocalStorage<Session[]>("studyTimerSessions", []);
+  const [soundEnabled, setSoundEnabled] = useLocalStorage("studyTimerSound", true);
+  const [pomodorosCompleted, setPomodorosCompleted] = useLocalStorage("studyTimerPomodoros", 0);
   const [isCustomDialogOpen, setIsCustomDialogOpen] = useState(false);
   const [hasPlayedMidBreak, setHasPlayedMidBreak] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -241,6 +243,13 @@ export function StudyTimer() {
     if (mode === "focus") {
       const newCount = pomodorosCompleted + 1;
       setPomodorosCompleted(newCount);
+
+      // Record real study session
+      if (userId) {
+        const focusMinutes = Math.round(totalTime / 60);
+        recordStudySession(userId, focusMinutes, "Focus Session");
+      }
+
       toast.success("🎉 Focus session complete! Great work!", {
         description: "Time for a break!"
       });
@@ -580,7 +589,7 @@ export function StudyTimer() {
                       <div>
                         <p className="text-sm capitalize">{session.mode.replace("-", " ")}</p>
                         <p className="text-xs text-muted-foreground">
-                          {session.completedAt.toLocaleTimeString([], { 
+                          {new Date(session.completedAt).toLocaleTimeString([], { 
                             hour: '2-digit', 
                             minute: '2-digit' 
                           })}

@@ -1,5 +1,8 @@
+import logging
 from supabase import create_client, Client
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 def get_supabase_client() -> Client:
     """Get Supabase client instance"""
@@ -23,24 +26,50 @@ def get_supabase_admin_client() -> Client:
             "Please set SUPABASE_SERVICE_KEY (service_role key) in src/obsidian-backend-flask/.env file."
         )
 
-    # Debug: print a short preview of the configured keys so we can verify at runtime.
-    # This is safe for development logs because it only shows a prefix, not the full key.
+    # Debug: log a short preview of the configured keys so we can verify at runtime.
+    # Uses the module logger at DEBUG level — suppressed in production.
     try:
         anon_preview = (settings.SUPABASE_ANON_KEY or "None")[:20]
         service_preview = (settings.SUPABASE_SERVICE_KEY or "None")[:20]
-        print(f"[SUPABASE DEBUG] SUPABASE_URL: {settings.SUPABASE_URL}")
-        print(f"[SUPABASE DEBUG] ANON KEY PREFIX: {anon_preview}")
-        print(f"[SUPABASE DEBUG] SERVICE KEY PREFIX: {service_preview}")
+        logger.debug("[SUPABASE] SUPABASE_URL: %s", settings.SUPABASE_URL)
+        logger.debug("[SUPABASE] ANON KEY PREFIX: %s", anon_preview)
+        logger.debug("[SUPABASE] SERVICE KEY PREFIX: %s", service_preview)
     except Exception:
         # Debug output should never break startup
         pass
 
-    # Verify the service key looks valid (should start with 'eyJ' for JWT)
-    if not settings.SUPABASE_SERVICE_KEY.startswith('eyJ'):
+    # Verify the service key looks valid
+    # New format: starts with 'sb_secret_'
+    # Legacy JWT format: starts with 'eyJ' BUT anon keys also start with 'eyJ',
+    # so for legacy JWTs we must decode and verify the role claim == 'service_role'
+    key = settings.SUPABASE_SERVICE_KEY
+    if key.startswith('sb_secret_'):
+        pass  # New format — always a service key
+    elif key.startswith('eyJ'):
+        # Decode the JWT payload (without verification — just inspect the claims)
+        import base64, json as _json
+        try:
+            parts = key.split('.')
+            if len(parts) != 3:
+                raise ValueError("Malformed JWT: expected 3 segments")
+            # Add padding as required by base64
+            padded = parts[1] + '=' * (4 - len(parts[1]) % 4)
+            payload = _json.loads(base64.urlsafe_b64decode(padded))
+            role = payload.get('role', '')
+            if role != 'service_role':
+                raise ValueError(
+                    f"SUPABASE_SERVICE_KEY has role '{role}' — expected 'service_role'. "
+                    "You may have pasted the anon key instead of the service_role key."
+                )
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not decode SUPABASE_SERVICE_KEY JWT: {e}")
+    else:
         raise ValueError(
             "SUPABASE_SERVICE_KEY appears to be invalid. "
-            "Service role keys should be JWT tokens starting with 'eyJ'. "
-            "Make sure you're using the 'service_role' key from Supabase Project Settings → API, not the 'anon' key."
+            "Service role keys should start with 'sb_secret_' (new format) or 'eyJ' (legacy JWT). "
+            "Make sure you're using the 'service_role' / 'secret' key from Supabase Project Settings → API Keys."
         )
 
     client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
@@ -49,7 +78,7 @@ def get_supabase_admin_client() -> Client:
     try:
         # This will succeed even on an empty table; it only verifies permissions.
         client.table("user_profiles").select("*", count="exact").limit(1).execute()
-        print("[SUPABASE DEBUG] Admin client test query to 'user_profiles' succeeded.")
+        logger.debug("[SUPABASE] Admin client test query to 'user_profiles' succeeded.")
     except Exception as e:
         raise ValueError(
             "Supabase admin client could not access 'user_profiles'. "

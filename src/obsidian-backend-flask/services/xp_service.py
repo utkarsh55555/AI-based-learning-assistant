@@ -1,4 +1,4 @@
-from supabase_client import supabase
+from supabase_client import get_supabase
 
 class XPService:
     # XP rewards
@@ -68,14 +68,14 @@ class XPService:
         xp_earned = int(base_xp * multiplier)
         
         # Get current user XP
-        result = supabase.table("user_profiles").select("total_xp").eq("user_id", user_id).single().execute()
+        result = get_supabase().table("user_profiles").select("total_xp").eq("user_id", user_id).single().execute()
         
         if result.data:
             current_xp = result.data.get("total_xp", 0)
             new_xp = current_xp + xp_earned
             
             # Update user XP
-            supabase.table("user_profiles").update({
+            get_supabase().table("user_profiles").update({
                 "total_xp": new_xp
             }).eq("user_id", user_id).execute()
             

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card } from "./ui/card";
 import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Trophy, Medal, TrendingUp, Star, Zap, Target } from "lucide-react";
 import { motion } from "motion/react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
+import { getUserStats, onStatsUpdated, type UserStats } from "../utils/userStatsStore";
 
 interface LeaderboardEntry {
   id: string;
@@ -19,99 +20,108 @@ interface LeaderboardEntry {
   weeklyXP: number;
 }
 
-const mockData: LeaderboardEntry[] = [
-  { 
-    id: "1", 
-    name: "You", 
-    avatar: "https://images.unsplash.com/photo-1638639930738-11a71fca1b4e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwY2F0JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDI3NTQ2fDA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 2450, 
-    level: 8, 
-    streak: 7, 
-    achievements: 12, 
-    rank: 4, 
-    weeklyXP: 450 
-  },
-  { 
-    id: "2", 
-    name: "Sarah Chen", 
-    avatar: "https://images.unsplash.com/photo-1617223777538-5698e655a613?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwZG9nJTIwcG9ydHJhaXR8ZW58MXx8fHwxNzU5OTY3MTQwfDA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 5280, 
-    level: 12, 
-    streak: 23, 
-    achievements: 28, 
-    rank: 1, 
-    weeklyXP: 820 
-  },
-  { 
-    id: "3", 
-    name: "Alex Kumar", 
-    avatar: "https://images.unsplash.com/photo-1738864720505-6bb1b83af524?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwZm94JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDMxNzA2fDA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 4150, 
-    level: 11, 
-    streak: 15, 
-    achievements: 21, 
-    rank: 2, 
-    weeklyXP: 610 
-  },
-  { 
-    id: "4", 
-    name: "Emma Wilson", 
-    avatar: "https://images.unsplash.com/photo-1688472977827-c7e446e49efe?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwcmFiYml0JTIwYnVubnl8ZW58MXx8fHwxNzYwMDMxNzA3fDA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 3890, 
-    level: 10, 
-    streak: 12, 
-    achievements: 19, 
-    rank: 3, 
-    weeklyXP: 580 
-  },
-  { 
-    id: "5", 
-    name: "James Park", 
-    avatar: "https://images.unsplash.com/photo-1590692464381-38f566ceaf7a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwcGFuZGElMjBwb3J0cmFpdHxlbnwxfHx8fDE3NjAwMzE3MDd8MA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 2310, 
-    level: 8, 
-    streak: 8, 
-    achievements: 11, 
-    rank: 5, 
-    weeklyXP: 380 
-  },
-  { 
-    id: "6", 
-    name: "Olivia Brown", 
-    avatar: "https://images.unsplash.com/photo-1725998488050-956dc8743df9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwb3dsJTIwYmlyZHxlbnwxfHx8fDE3NjAwMzE3MDd8MA&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 2180, 
-    level: 7, 
-    streak: 6, 
-    achievements: 10, 
-    rank: 6, 
-    weeklyXP: 320 
-  },
-  { 
-    id: "7", 
-    name: "Liam Garcia", 
-    avatar: "https://images.unsplash.com/photo-1654119109097-3094c13fc6ca?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwcGVuZ3VpbiUyMHBvcnRyYWl0fGVufDF8fHx8MTc2MDAzMTcwOHww&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 1950, 
-    level: 7, 
-    streak: 5, 
-    achievements: 9, 
-    rank: 7, 
-    weeklyXP: 290 
-  },
-  { 
-    id: "8", 
-    name: "Sophia Lee", 
-    avatar: "https://images.unsplash.com/photo-1633093823511-fa9d7d5699a1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwYW5pbWFsJTIwYXZhdGFyfGVufDF8fHx8MTc2MDAzMTcwNXww&ixlib=rb-4.1.0&q=80&w=400", 
-    xp: 1820, 
-    level: 6, 
-    streak: 4, 
-    achievements: 8, 
-    rank: 8, 
-    weeklyXP: 260 
-  },
-];
+import { leaderboardAPI } from "../utils/api";
+import { computeLevel } from "../utils/userStatsStore";
 
-export function Leaderboard() {
+interface LeaderboardProps {
+  userId?: string;
+  userName?: string;
+  userAvatar?: string;
+}
+
+export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: LeaderboardProps) {
   const [timeframe, setTimeframe] = useState<"all" | "weekly" | "monthly">("all");
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [globalUsers, setGlobalUsers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch local live stats
+  useEffect(() => {
+    if (userId) {
+      setStats(getUserStats(userId));
+      const unsub = onStatsUpdated(() => {
+        setStats(getUserStats(userId));
+      });
+      return unsub;
+    }
+  }, [userId]);
+
+  // Fetch global leaderboard
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      try {
+        setIsLoading(true);
+        const data = await leaderboardAPI.getGlobal();
+        if (Array.isArray(data)) {
+          setGlobalUsers(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch leaderboard:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchLeaderboard();
+  }, []);
+
+  const leaderboardData = useMemo(() => {
+    const data: LeaderboardEntry[] = globalUsers.map((u, i) => ({
+      id: u.user_id?.toString() || `global-${i}`,
+      name: u.name || "Unknown User",
+      avatar: u.avatar_url || "",
+      xp: u.total_xp || 0,
+      level: computeLevel(u.total_xp || 0),
+      streak: u.current_streak || 0,
+      achievements: 0,
+      rank: 0,
+      weeklyXP: 0 // Not fully supported globally yet
+    }));
+    
+    let weeklyXP = 0;
+    let totalXP = 0;
+    let level = 1;
+    let streak = 0;
+    let achievements = 0;
+
+    if (stats) {
+      totalXP = stats.totalXp || 0;
+      level = stats.level || 1;
+      streak = stats.currentStreak || 0;
+      achievements = (stats.achievements || []).filter(a => a.unlockedAt).length;
+      weeklyXP = (stats.weeklyActivity || []).reduce((sum, day) => sum + (day.xp || 0), 0);
+    }
+
+    // Remove the current user if they are in the fetched global list (to replace with live stats)
+    const filteredData = data.filter(u => u.id !== (userId || "current-user"));
+
+    // Add current user with live stats
+    filteredData.push({
+      id: userId || "current-user",
+      name: userName || "You",
+      avatar: userAvatar || "https://images.unsplash.com/photo-1638639930738-11a71fca1b4e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwY2F0JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDI3NTQ2fDA&ixlib=rb-4.1.0&q=80&w=400",
+      xp: totalXP,
+      level: level,
+      streak: streak,
+      achievements: achievements,
+      rank: 0,
+      weeklyXP: weeklyXP
+    });
+
+    // Sort based on timeframe
+    filteredData.sort((a, b) => {
+      if (timeframe === "weekly") return b.weeklyXP - a.weeklyXP;
+      return b.xp - a.xp;
+    });
+
+    // Assign ranks
+    filteredData.forEach((entry, idx) => {
+      entry.rank = idx + 1;
+    });
+
+    return filteredData;
+  }, [stats, timeframe, userId, userName, userAvatar, globalUsers]);
+
+  const currentUserEntry = leaderboardData.find(e => e.id === (userId || "current-user")) || leaderboardData[0];
 
   const getRankIcon = (rank: number) => {
     switch (rank) {
@@ -165,7 +175,7 @@ export function Leaderboard() {
 
       {/* Top 3 Podium */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        {mockData.slice(0, 3).sort((a, b) => a.rank - b.rank).map((entry, idx) => (
+        {leaderboardData.slice(0, 3).sort((a, b) => a.rank - b.rank).map((entry, idx) => (
           <motion.div
             key={entry.id}
             initial={{ opacity: 0, y: 20 }}
@@ -201,7 +211,7 @@ export function Leaderboard() {
       <div className="glass-card p-6 rounded-xl flex-1 overflow-hidden flex flex-col">
         <h3 className="mb-4">Rankings</h3>
         <div className="space-y-2 overflow-auto flex-1">
-          {mockData.map((entry, idx) => (
+          {leaderboardData.map((entry, idx) => (
             <motion.div
               key={entry.id}
               initial={{ opacity: 0, x: -20 }}
@@ -210,7 +220,7 @@ export function Leaderboard() {
             >
               <Card
                 className={`p-4 ${
-                  entry.name === "You"
+                  entry.id === (userId || "current-user")
                     ? "bg-blue-600/20 border-blue-600/50 ring-2 ring-blue-600/30"
                     : "glass-card"
                 }`}
@@ -232,7 +242,7 @@ export function Leaderboard() {
                   <div className="flex-1">
                     <h4 className="flex items-center gap-2">
                       {entry.name}
-                      {entry.name === "You" && (
+                      {entry.id === (userId || "current-user") && (
                         <Badge variant="outline" className="text-xs">You</Badge>
                       )}
                     </h4>
@@ -267,24 +277,23 @@ export function Leaderboard() {
         </div>
       </div>
 
-      {/* Your Stats Summary */}
       <div className="glass-card p-4 rounded-xl mt-4">
         <div className="grid grid-cols-4 gap-4 text-center">
           <div>
             <p className="text-sm text-muted-foreground mb-1">Your Rank</p>
-            <p className="text-xl">#4</p>
+            <p className="text-xl">#{currentUserEntry.rank}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground mb-1">Total XP</p>
-            <p className="text-xl">2,450</p>
+            <p className="text-xl">{currentUserEntry.xp.toLocaleString()}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground mb-1">Streak</p>
-            <p className="text-xl">7 🔥</p>
+            <p className="text-xl">{currentUserEntry.streak} 🔥</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground mb-1">To Next Rank</p>
-            <p className="text-xl text-blue-400">440 XP</p>
+            <p className="text-sm text-muted-foreground mb-1">Weekly XP</p>
+            <p className="text-xl text-blue-400">+{currentUserEntry.weeklyXP.toLocaleString()}</p>
           </div>
         </div>
       </div>
