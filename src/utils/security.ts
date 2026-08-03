@@ -112,7 +112,7 @@ export function checkPasswordStrength(password: string): PasswordStrength {
 
 // ── CSRF Token Management ─────────────────────────────────────────────────
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:5000';
+const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
 
 interface CsrfCache {
   token: string;

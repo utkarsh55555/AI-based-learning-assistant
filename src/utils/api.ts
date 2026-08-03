@@ -1200,10 +1200,7 @@ export const tutorAPI = {
     // so we make a direct fetch call here with the auth token.
     const token = localStorage.getItem('access_token');
     
-    // Mock the backend API URL if not available
-    const baseUrl = window.location.origin.includes('localhost') 
-      ? 'http://localhost:5000' 
-      : 'https://ai-learning-assistant-backend.onrender.com';
+    const baseUrl = (import.meta as any).env?.VITE_API_URL || '';
       
     const response = await fetch(`${baseUrl}/api/tutor/upload`, {
       method: 'POST',
