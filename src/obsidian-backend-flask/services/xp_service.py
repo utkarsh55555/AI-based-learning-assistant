@@ -1,4 +1,4 @@
-from supabase_client import get_supabase
+from services.mongo_service import MongoService
 
 class XPService:
     # XP rewards
@@ -67,19 +67,17 @@ class XPService:
         base_xp = XPService.XP_REWARDS.get(xp_type, 0)
         xp_earned = int(base_xp * multiplier)
         
-        # Get current user XP
-        result = get_supabase().table("user_profiles").select("total_xp").eq("user_id", user_id).single().execute()
+        # Get current user profile
+        records = MongoService.get_records("user_profiles", filters={"user_id": user_id}, limit=1)
         
-        if result.data:
-            current_xp = result.data.get("total_xp", 0)
+        if records:
+            profile = records[0]
+            current_xp = profile.get("total_xp", 0)
             new_xp = current_xp + xp_earned
             
-            # Update user XP
-            get_supabase().table("user_profiles").update({
-                "total_xp": new_xp
-            }).eq("user_id", user_id).execute()
+            # Update user XP in MongoDB
+            MongoService.update_record("user_profiles", user_id, {"total_xp": new_xp}, id_column="user_id")
             
-            # Check for level up
             old_level = XPService.calculate_level(current_xp)
             new_level = XPService.calculate_level(new_xp)
             level_up = new_level > old_level

@@ -1,7 +1,8 @@
-from services.supabase_service import SupabaseService
+from services.mongo_service import MongoService
 from services.xp_service import XPService
 from services.ai_tutor_service import AITutorService
 import json
+import re
 
 class NotesController:
     @staticmethod
@@ -15,15 +16,12 @@ class NotesController:
             "subject": subject
         }
         
-        # Save note to database (optional; ignore errors if table doesn't exist)
         try:
-            note = SupabaseService.create_record("notes", note_data)
+            note = MongoService.create_record("notes", note_data)
         except Exception as e:
-            # Log the error but don't fail the response
             print(f"[WARNING] Failed to save note: {e}")
-            note = {"id": "temp-id"}  # fallback minimal response
+            note = {"id": "temp-id"}
         
-        # Award XP (optional; ignore errors if table doesn't exist)
         try:
             XPService.award_xp(user_id, "note_created")
         except Exception as e:
@@ -35,7 +33,7 @@ class NotesController:
     def get_note(note_id: str):
         """Get note by ID"""
         try:
-            return SupabaseService.get_record("notes", note_id)
+            return MongoService.get_record("notes", note_id, id_column="_id")
         except Exception as e:
             print(f"[WARNING] Failed to fetch note: {e}")
             return None
@@ -43,19 +41,14 @@ class NotesController:
     @staticmethod
     def get_user_notes(user_id: str, subject: str = None, tag: str = None):
         """Get user's notes with optional filters"""
-        def query_builder(q):
-            query = q.select("*").eq("user_id", user_id)
+        filters = {"user_id": user_id}
+        if subject:
+            filters["subject"] = subject
+        if tag:
+            filters["tags"] = {"$in": [tag]}
             
-            if subject:
-                query = query.eq("subject", subject)
-            
-            if tag:
-                query = query.contains("tags", [tag])
-            
-            return query.order("updated_at", desc=True)
-        
         try:
-            return SupabaseService.query_records("notes", query_builder)
+            return MongoService.get_records("notes", filters, order_by="-updated_at")
         except Exception as e:
             print(f"[WARNING] Failed to fetch user notes: {e}")
             return []
@@ -64,15 +57,14 @@ class NotesController:
     def update_note(note_id: str, user_id: str, data: dict):
         """Update note"""
         try:
-            # Verify ownership
-            note = SupabaseService.get_record("notes", note_id)
+            note = MongoService.get_record("notes", note_id, id_column="_id")
             if not note or note.get("user_id") != user_id:
                 raise Exception("Unauthorized or note not found")
             
             allowed_fields = ["title", "content", "tags", "subject"]
             update_data = {k: v for k, v in data.items() if k in allowed_fields}
             
-            return SupabaseService.update_record("notes", note_id, update_data)
+            return MongoService.update_record("notes", note_id, update_data, id_column="_id")
         except Exception as e:
             print(f"[WARNING] Failed to update note: {e}")
             raise Exception(f"Update failed: {str(e)}")
@@ -81,12 +73,11 @@ class NotesController:
     def delete_note(note_id: str, user_id: str):
         """Delete note"""
         try:
-            # Verify ownership
-            note = SupabaseService.get_record("notes", note_id)
+            note = MongoService.get_record("notes", note_id, id_column="_id")
             if not note or note.get("user_id") != user_id:
                 raise Exception("Unauthorized or note not found")
             
-            return SupabaseService.delete_record("notes", note_id)
+            return MongoService.delete_record("notes", note_id, id_column="_id")
         except Exception as e:
             print(f"[WARNING] Failed to delete note: {e}")
             raise Exception(f"Delete failed: {str(e)}")
@@ -95,12 +86,16 @@ class NotesController:
     def search_notes(user_id: str, search_term: str):
         """Search user's notes"""
         try:
-            return SupabaseService.query_records(
-                "notes",
-                lambda q: q.select("*").eq("user_id", user_id).or_(
-                    f"title.ilike.%{search_term}%,content.ilike.%{search_term}%"
-                ).order("updated_at", desc=True)
-            )
+            # Using regex for case-insensitive search
+            regex = re.compile(f".*{re.escape(search_term)}.*", re.IGNORECASE)
+            filters = {
+                "user_id": user_id,
+                "$or": [
+                    {"title": regex},
+                    {"content": regex}
+                ]
+            }
+            return MongoService.get_records("notes", filters, order_by="-updated_at")
         except Exception as e:
             print(f"[WARNING] Failed to search notes: {e}")
             return []
@@ -112,7 +107,6 @@ class NotesController:
             notes_json = AITutorService.generate_notes(topic, subject, level)
             notes_data = json.loads(notes_json)
             
-            # Save to database (optional; ignore errors if table doesn't exist)
             note_data = {
                 "user_id": user_id,
                 "title": notes_data.get("title", topic),
@@ -122,13 +116,11 @@ class NotesController:
             }
             
             try:
-                note = SupabaseService.create_record("notes", note_data)
+                note = MongoService.create_record("notes", note_data)
             except Exception as e:
-                # Log the error but don't fail the response
                 print(f"[WARNING] Failed to save AI-generated note: {e}")
                 note = {"id": "temp-note-id", **note_data}
             
-            # Award XP (optional; ignore errors if table doesn't exist)
             try:
                 XPService.award_xp(user_id, "note_created")
             except Exception as e:
@@ -136,7 +128,7 @@ class NotesController:
             
             return {
                 "note": note,
-                "ai_data": notes_data  # Include AI-generated data (summary, keyPoints, etc.)
+                "ai_data": notes_data
             }
         except Exception as e:
             raise Exception(f"Notes generation error: {str(e)}")

@@ -1,4 +1,4 @@
-from services.supabase_service import SupabaseService
+from services.mongo_service import MongoService
 from services.xp_service import XPService
 from services.streak_service import StreakService
 
@@ -6,7 +6,7 @@ class UserController:
     @staticmethod
     def get_profile(user_id: str):
         """Get user profile"""
-        profile = SupabaseService.get_record("user_profiles", user_id, "user_id")
+        profile = MongoService.get_record("user_profiles", user_id, "user_id")
         
         if profile:
             # Add calculated fields
@@ -21,7 +21,7 @@ class UserController:
         allowed_fields = ["name", "avatar_url", "bio", "preferences", "total_xp", "current_streak"]
         update_data = {k: v for k, v in data.items() if k in allowed_fields}
         
-        return SupabaseService.update_record("user_profiles", user_id, update_data, "user_id")
+        return MongoService.update_record("user_profiles", user_id, update_data, "user_id")
     
     @staticmethod
     def get_dashboard_stats(user_id: str):
@@ -29,14 +29,18 @@ class UserController:
         profile = UserController.get_profile(user_id)
         
         # Get activity stats
-        quiz_stats = SupabaseService.query_records(
+        quiz_stats = MongoService.get_records(
             "quiz_attempts",
-            lambda q: q.select("*").eq("user_id", user_id).order("created_at", desc=True).limit(10)
+            filters={"user_id": user_id},
+            order_by="-created_at",
+            limit=10
         )
         
-        study_sessions = SupabaseService.query_records(
+        study_sessions = MongoService.get_records(
             "study_sessions",
-            lambda q: q.select("*").eq("user_id", user_id).order("created_at", desc=True).limit(10)
+            filters={"user_id": user_id},
+            order_by="-created_at",
+            limit=10
         )
         
         return {
@@ -64,7 +68,7 @@ class UserController:
             "xp_earned": xp_result.get("xp_earned", 0)
         }
         
-        SupabaseService.create_record("user_activities", activity_data)
+        MongoService.create_record("user_activities", activity_data)
         
         return {
             "streak": streak_result,

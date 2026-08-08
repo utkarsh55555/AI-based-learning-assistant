@@ -1,6 +1,6 @@
 import logging
 from services.ai_tutor_service import AITutorService
-from services.supabase_service import SupabaseService
+from services.mongo_service import MongoService
 import PyPDF2
 import docx
 import io
@@ -14,7 +14,6 @@ class TutorController:
         if conversation_history is None:
             conversation_history = []
         
-        # Build messages for OpenAI
         messages = [
             {
                 "role": "system",
@@ -22,24 +21,19 @@ class TutorController:
             }
         ]
         
-        # Add conversation history
         messages.extend(conversation_history)
-        
-        # Add current message
         messages.append({"role": "user", "content": message})
         
-        # Get AI response
         response = AITutorService.chat_completion(messages)
         
-        # Save conversation to database (optional; ignore errors if table doesn't exist)
+        # Save conversation to database
         try:
             conversation_data = {
                 "user_id": user_id,
                 "messages": messages + [{"role": "assistant", "content": response}]
             }
-            SupabaseService.create_record("chat_conversations", conversation_data)
+            MongoService.create_record("chat_conversations", conversation_data)
         except Exception as e:
-            # Log the error but don't fail the chat response
             logger.warning("Failed to save chat_conversation: %s", e)
         
         return {
@@ -56,9 +50,11 @@ class TutorController:
     @staticmethod
     def get_conversation_history(user_id: str, limit: int = 10):
         """Get user's recent conversations"""
-        return SupabaseService.query_records(
+        return MongoService.get_records(
             "chat_conversations",
-            lambda q: q.select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit)
+            filters={"user_id": user_id},
+            order_by="-created_at",
+            limit=limit
         )
 
     @staticmethod

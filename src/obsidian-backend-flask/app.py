@@ -63,6 +63,13 @@ def create_app():
     # ── Core config ────────────────────────────────────────────────────────
     app.config['SECRET_KEY'] = settings.SECRET_KEY
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB — reject oversized bodies
+    
+    # ── MongoDB config ─────────────────────────────────────────────────────
+    app.config["MONGO_URI"] = settings.MONGO_URI
+    
+    # Initialize PyMongo
+    from mongo_client import mongo
+    mongo.init_app(app)
 
     # ── 1. Security headers via Flask-Talisman ─────────────────────────────
     # force_https=True only in production; dev stays on http://localhost

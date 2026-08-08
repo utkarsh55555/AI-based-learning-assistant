@@ -25,10 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 class Settings:
-    # Supabase - strip whitespace from values
-    SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
-    SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
-    SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+    # MongoDB
+    MONGO_URI = os.getenv("MONGO_URI", "").strip()
 
     # AI Provider (OpenRouter)
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -87,8 +85,7 @@ class Settings:
             strict: If True, raises ValueError on missing vars. If False, only warns.
         """
         required = [
-            ("SUPABASE_URL", cls.SUPABASE_URL),
-            ("SUPABASE_ANON_KEY", cls.SUPABASE_ANON_KEY),
+            ("MONGO_URI", cls.MONGO_URI),
             ("OPENROUTER_API_KEY", cls.OPENROUTER_API_KEY),
         ]
 

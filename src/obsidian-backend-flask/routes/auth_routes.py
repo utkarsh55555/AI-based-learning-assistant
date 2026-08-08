@@ -74,15 +74,19 @@ def signup():
 
         if result:
             session = result.get('session') if isinstance(result, dict) else None
-            access_token  = getattr(session, 'access_token',  None) if session else None
-            refresh_token = getattr(session, 'refresh_token', None) if session else None
+            access_token  = session.get('access_token')  if isinstance(session, dict) else getattr(session, 'access_token',  None)
+            refresh_token = session.get('refresh_token') if isinstance(session, dict) else getattr(session, 'refresh_token', None)
 
-            audit_log("SIGNUP", email=email, user_id=result['user'].id, status="success")
+            user_obj = result.get('user', {})
+            user_id  = user_obj.get('id')    if isinstance(user_obj, dict) else getattr(user_obj, 'id',    None)
+            user_email = user_obj.get('email') if isinstance(user_obj, dict) else getattr(user_obj, 'email', None)
+
+            audit_log("SIGNUP", email=email, user_id=user_id, status="success")
 
             resp = success_response({
                 "user": {
-                    "id": result['user'].id,
-                    "email": result['user'].email,
+                    "id": user_id,
+                    "email": user_email,
                     "name": name,
                     "is_new_user": True,
                 },
@@ -149,12 +153,18 @@ def login():
             if not session:
                 return error_response("Login session could not be created", status_code=500)
 
-            audit_log("LOGIN_SUCCESS", email=email, user_id=result['user'].id)
+            user_obj   = result.get('user', {})
+            user_id    = user_obj.get('id')    if isinstance(user_obj, dict) else getattr(user_obj, 'id',    None)
+            user_email = user_obj.get('email') if isinstance(user_obj, dict) else getattr(user_obj, 'email', None)
+            access_token  = session.get('access_token')  if isinstance(session, dict) else getattr(session, 'access_token',  None)
+            refresh_token = session.get('refresh_token') if isinstance(session, dict) else getattr(session, 'refresh_token', None)
+
+            audit_log("LOGIN_SUCCESS", email=email, user_id=user_id)
 
             resp = success_response({
                 "user": {
-                    "id": result['user'].id,
-                    "email": result['user'].email,
+                    "id": user_id,
+                    "email": user_email,
                     "name": profile.get('name'),
                     "role": profile.get('role', 'student'),
                     "avatar_url": profile.get('avatar_url'),
@@ -162,8 +172,8 @@ def login():
                     "current_streak": profile.get('current_streak', 0),
                     "is_new_user": profile.get('is_new_user', False),
                 },
-                "access_token": session.access_token,
-                "refresh_token": session.refresh_token,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
             }, "Login successful")
             return _no_cache(resp)
 
@@ -228,10 +238,13 @@ def get_current_user():
 
         if result:
             profile = result.get('profile') or {}
+            user_obj   = result.get('user', {})
+            user_id    = user_obj.get('id')    if isinstance(user_obj, dict) else getattr(user_obj, 'id',    None)
+            user_email = user_obj.get('email') if isinstance(user_obj, dict) else getattr(user_obj, 'email', None)
             return success_response({
                 "user": {
-                    "id": result['user'].id,
-                    "email": result['user'].email,
+                    "id": user_id,
+                    "email": user_email,
                     "name": profile.get('name'),
                     "role": profile.get('role', 'student'),
                     "avatar_url": profile.get('avatar_url', ''),

@@ -1,17 +1,8 @@
 """
-api/index.py - Hardened Flask serverless function for Vercel.
-Covers all API endpoints expected by the frontend (src/utils/api.ts).
-
-Security layers applied (mirrors src/obsidian-backend-flask/app.py):
-  1. CORS            - env-driven origin whitelist, no wildcard in production
-  2. CSRF            - HMAC-SHA256 signed tokens, validated on every state-change
-  3. Rate Limiting   - Flask-Limiter (in-memory; set RATE_LIMIT_STORAGE_URI for Redis)
-  4. Input sanitize  - strip HTML+ctrl chars, length-cap all LLM prompts
-  5. Auth guards     - every data endpoint requires a valid Bearer token
-  6. Field whitelist - update_profile only accepts known safe fields
-  7. Request size    - MAX_CONTENT_LENGTH = 16 MB
-  8. Error handling  - no raw exceptions returned to client
-  9. Cache headers   - no-store on all /api/auth/* responses
+api/index.py - MongoDB-backed Flask serverless function for Vercel.
+Covers all API endpoints expected by the frontend.
+Authentication: Custom JWT (PyJWT + werkzeug password hashing).
+Database: MongoDB Atlas via PyMongo.
 """
 
 import os, re, json, uuid, hmac, hashlib, secrets, time, logging
@@ -19,6 +10,10 @@ from datetime import datetime
 from functools import wraps
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
+from pymongo import MongoClient
+from bson import ObjectId
+import jwt as pyjwt
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -101,22 +96,28 @@ def sanitize(value, max_len: int = 2000):
 def sanitize_prompt(value, max_len: int = 500):
     return sanitize(value, max_len)
 
-def escape_like(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+# ── MongoDB singleton ──────────────────────────────────────────────────────
+_mongo_client = None
+_mongo_db = None
 
-# ── Lazy singletons ────────────────────────────────────────────────────────
-_supabase = None
+def get_db():
+    global _mongo_client, _mongo_db
+    if _mongo_db is None:
+        uri = os.environ.get("MONGO_URI", "")
+        if not uri:
+            raise RuntimeError("MONGO_URI environment variable is not set.")
+        _mongo_client = MongoClient(uri)
+        _mongo_db = _mongo_client.get_default_database()
+    return _mongo_db
+
+def clean_doc(doc):
+    """Convert MongoDB ObjectId to string for JSON serialization."""
+    if doc and "_id" in doc:
+        doc["_id"] = str(doc["_id"])
+    return doc
+
+# ── AI singleton ───────────────────────────────────────────────────────────
 _ai = None
-
-def get_supabase():
-    global _supabase
-    if _supabase is None:
-        from supabase import create_client
-        url = os.environ.get("SUPABASE_URL", "")
-        key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_ANON_KEY", "")
-        if not url or not key: raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-        _supabase = create_client(url, key)
-    return _supabase
 
 def get_ai():
     global _ai
@@ -158,14 +159,26 @@ def ai_complete(prompt: str, max_tokens: int = 2048) -> str:
                                              max_tokens=max_tokens)
     return resp.choices[0].message.content.strip()
 
+# ── JWT helpers ────────────────────────────────────────────────────────────
+JWT_EXPIRY = int(os.environ.get("JWT_EXPIRY_SECONDS", "3600"))
+
+def generate_token(user_id: str) -> str:
+    payload = {"sub": user_id, "iat": int(time.time()), "exp": int(time.time()) + JWT_EXPIRY}
+    return pyjwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
 def get_user_from_token():
+    """Decode JWT and return user profile dict from MongoDB, or None."""
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "): return None
     token = auth[7:].strip()
     if not token: return None
     try:
-        user = get_supabase().auth.get_user(token)
-        return user.user if user else None
+        payload = pyjwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        user_id = payload.get("sub")
+        if not user_id: return None
+        db = get_db()
+        profile = db.user_profiles.find_one({"user_id": user_id})
+        return clean_doc(profile) if profile else None
     except Exception: return None
 
 def require_auth(f):
@@ -177,7 +190,6 @@ def require_auth(f):
     return decorated
 
 def no_cache(response):
-    """Add no-store headers to a response (use on all auth endpoints)."""
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -227,7 +239,7 @@ def api_test(): return jsonify({"status": "ok", "message": "Backend is reachable
 
 @app.route("/api/")
 @app.route("/api")
-def api_root(): return jsonify({"name": "Obsidian API", "version": "3.0.0"}), 200
+def api_root(): return jsonify({"name": "Obsidian API", "version": "3.0.0", "db": "MongoDB"}), 200
 
 @app.route("/api/csrf-token")
 def csrf_token():
@@ -248,25 +260,29 @@ def signup():
             return no_cache(jsonify({"error": "A valid email is required."})), 400
         if not password:
             return no_cache(jsonify({"error": "Password is required."})), 400
-        sb = get_supabase()
-        resp = sb.auth.sign_up({"email": email, "password": password,
-                                 "options": {"data": {"name": name, "full_name": name}}})
-        if not resp.user:
-            return no_cache(jsonify({"error": "Signup failed. Please try again."})), 400
-        try:
-            sb.table("users").upsert({"id": resp.user.id, "email": email, "name": name,
-                                      "total_xp": 0, "current_streak": 0, "created_at": now_iso()}).execute()
-        except Exception: pass
+
+        db = get_db()
+        if db.user_profiles.find_one({"email": email}):
+            return no_cache(jsonify({"error": "An account with this email already exists."})), 409
+
+        user_id = new_id()
+        hashed_pw = generate_password_hash(password)
+        profile = {
+            "user_id": user_id, "email": email, "name": name,
+            "password": hashed_pw, "total_xp": 0, "current_streak": 0,
+            "avatar_url": "", "bio": "", "is_new_user": True,
+            "created_at": now_iso()
+        }
+        db.user_profiles.insert_one(profile)
+        access_token = generate_token(user_id)
+
         return no_cache(jsonify({
-            "user": {"id": resp.user.id, "email": email, "name": name,
+            "user": {"id": user_id, "email": email, "name": name,
                      "total_xp": 0, "current_streak": 0, "is_new_user": True},
-            "access_token":  resp.session.access_token  if resp.session else None,
-            "refresh_token": resp.session.refresh_token if resp.session else None,
+            "access_token": access_token,
+            "refresh_token": None,
         })), 201
     except Exception as e:
-        msg = str(e).lower()
-        if "already registered" in msg or "already been registered" in msg:
-            return no_cache(jsonify({"error": "An account with this email already exists."})), 409
         logger.error("Signup error: %s", e)
         return no_cache(jsonify({"error": "Signup failed. Please check your details."})), 400
 
@@ -277,67 +293,55 @@ def login():
         data = request.get_json() or {}
         email = sanitize((data.get("email") or ""), 200).lower()
         password = data.get("password", "")
-        sb = get_supabase()
-        resp = sb.auth.sign_in_with_password({"email": email, "password": password})
-        meta = resp.user.user_metadata or {}
-        name = meta.get("name") or meta.get("full_name") or ""
-        profile = {}
-        try:
-            prof = sb.table("users").select("*").eq("id", resp.user.id).single().execute()
-            profile = prof.data or {}
-            if not name: name = profile.get("name", "")
-        except Exception: pass
-        if not name: name = email.split("@")[0]
+
+        db = get_db()
+        profile = db.user_profiles.find_one({"email": email})
+
+        if not profile:
+            return no_cache(jsonify({"error": "No account found with this email."})), 401
+        if not check_password_hash(profile.get("password", ""), password):
+            return no_cache(jsonify({"error": "Incorrect password. Please try again."})), 401
+
+        user_id = profile["user_id"]
+        access_token = generate_token(user_id)
+
+        # Mark as not new after first login
+        if profile.get("is_new_user"):
+            db.user_profiles.update_one({"user_id": user_id}, {"$set": {"is_new_user": False}})
+
         return no_cache(jsonify({
-            "user": {"id": resp.user.id, "email": email, "name": name,
+            "user": {"id": user_id, "email": email, "name": profile.get("name", ""),
                      "total_xp": profile.get("total_xp", 0),
-                     "current_streak": profile.get("current_streak", 0), "is_new_user": False},
-            "access_token":  resp.session.access_token,
-            "refresh_token": resp.session.refresh_token,
+                     "current_streak": profile.get("current_streak", 0),
+                     "avatar_url": profile.get("avatar_url", ""),
+                     "is_new_user": False},
+            "access_token": access_token,
+            "refresh_token": None,
         })), 200
     except Exception as e:
-        msg = str(e).lower()
-        if "invalid" in msg or "credentials" in msg or "password" in msg or "400" in msg:
-            return no_cache(jsonify({"error": "Incorrect password. Please try again."})), 401
-        if "not found" in msg or "no user" in msg or "404" in msg:
-            return no_cache(jsonify({"error": "No account found with this email."})), 401
         logger.error("Login error: %s", e)
         return no_cache(jsonify({"error": "Login failed. Please check your credentials."})), 401
 
 @app.route("/api/auth/logout", methods=["POST"])
 def logout():
-    try: get_supabase().auth.sign_out()
-    except Exception: pass
+    # Stateless JWT — client just discards the token
     return no_cache(jsonify({"message": "Logged out successfully"})), 200
 
 @app.route("/api/auth/me")
 def me():
     user = get_user_from_token()
     if not user: return no_cache(jsonify({"error": "Unauthorized"})), 401
-    meta = user.user_metadata or {}
-    name = meta.get("name") or meta.get("full_name") or ""
-    profile = {}
-    try:
-        prof = get_supabase().table("users").select("*").eq("id", user.id).single().execute()
-        profile = prof.data or {}
-        if not name: name = profile.get("name", "")
-    except Exception: pass
-    if not name: name = (user.email or "").split("@")[0]
     return no_cache(jsonify({"user": {
-        "id": user.id, "email": user.email, "name": name,
-        "total_xp": profile.get("total_xp", 0), "current_streak": profile.get("current_streak", 0),
-        "avatar_url": profile.get("avatar_url", meta.get("avatar_url", "")),
+        "id": user["user_id"], "email": user.get("email", ""),
+        "name": user.get("name", ""),
+        "total_xp": user.get("total_xp", 0), "current_streak": user.get("current_streak", 0),
+        "avatar_url": user.get("avatar_url", ""),
     }})), 200
 
 @app.route("/api/auth/refresh", methods=["POST"])
 def refresh_token():
-    try:
-        data = request.get_json() or {}
-        resp = get_supabase().auth.refresh_session(data.get("refresh_token", ""))
-        return no_cache(jsonify({"access_token": resp.session.access_token,
-                                  "refresh_token": resp.session.refresh_token})), 200
-    except Exception:
-        return no_cache(jsonify({"error": "Session refresh failed. Please log in again."})), 401
+    # With JWT, just re-authenticate. Stateless refresh not supported here.
+    return no_cache(jsonify({"error": "Session expired. Please log in again."})), 401
 
 # ══════════════════════════════════════════════════════════════════════════
 # USER PROFILE
@@ -347,16 +351,10 @@ _PROFILE_ALLOWED = {"name", "email", "bio", "avatar_url", "learning_goals", "pre
 @app.route("/api/user/profile", methods=["GET"])
 @require_auth
 def get_profile(user):
-    meta = user.user_metadata or {}; profile = {}
-    try:
-        r = get_supabase().table("users").select("*").eq("id", user.id).single().execute()
-        profile = r.data or {}
-    except Exception: pass
-    name = profile.get("name") or meta.get("name") or meta.get("full_name") or user.email.split("@")[0]
     return jsonify({"profile": {
-        "id": user.id, "email": user.email, "name": name,
-        "bio": profile.get("bio", ""), "avatar_url": profile.get("avatar_url", ""),
-        "total_xp": profile.get("total_xp", 0), "current_streak": profile.get("current_streak", 0),
+        "id": user["user_id"], "email": user.get("email", ""), "name": user.get("name", ""),
+        "bio": user.get("bio", ""), "avatar_url": user.get("avatar_url", ""),
+        "total_xp": user.get("total_xp", 0), "current_streak": user.get("current_streak", 0),
     }}), 200
 
 @app.route("/api/user/profile", methods=["PUT", "PATCH"])
@@ -364,11 +362,10 @@ def get_profile(user):
 def update_profile(user):
     try:
         raw = request.get_json() or {}
-        # Field whitelist - prevents mass assignment (cannot set total_xp, role, etc.)
         safe = {k: sanitize(str(v), 500) if isinstance(v, str) else v
                 for k, v in raw.items() if k in _PROFILE_ALLOWED}
         if not safe: return jsonify({"error": "No valid fields to update."}), 400
-        get_supabase().table("users").upsert({"id": user.id, **safe, "updated_at": now_iso()}).execute()
+        get_db().user_profiles.update_one({"user_id": user["user_id"]}, {"$set": safe})
         return jsonify({"message": "Profile updated", "profile": safe}), 200
     except Exception as e:
         logger.error("Profile update error: %s", e)
@@ -377,12 +374,7 @@ def update_profile(user):
 @app.route("/api/user/dashboard")
 @require_auth
 def dashboard(user):
-    profile = {}
-    try:
-        r = get_supabase().table("users").select("*").eq("id", user.id).single().execute()
-        profile = r.data or {}
-    except Exception: pass
-    xp = profile.get("total_xp", 0); streak = profile.get("current_streak", 0)
+    xp = user.get("total_xp", 0); streak = user.get("current_streak", 0)
     return jsonify({"xp": xp, "streak": streak, "level": max(1, xp // 100),
                     "stats": {"quizzes_taken": 0, "average_score": 0, "focus_minutes": 0},
                     "recent_activities": []}), 200
@@ -398,7 +390,6 @@ def tutor_chat(user):
         data = request.get_json() or {}
         message = sanitize(data.get("message", ""), 4000)
         if not message: return jsonify({"error": "message is required"}), 400
-        # Sanitize + filter history: role whitelist + 20-message cap
         history = [
             {"role": m["role"], "content": sanitize(str(m.get("content", "")), 4000)}
             for m in (data.get("conversation_history") or [])
@@ -439,7 +430,7 @@ def tutor_upload(user):
         file = request.files["file"]
         if not file.filename: return jsonify({"error": "No file selected"}), 400
         ALLOWED = {"pdf", "docx", "doc", "txt", "md", "csv"}
-        MAX_SIZE = 10 * 1024 * 1024  # 10 MB
+        MAX_SIZE = 10 * 1024 * 1024
         from werkzeug.utils import secure_filename
         safe_name = secure_filename(file.filename)
         ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
@@ -478,7 +469,7 @@ def quiz_generate(user):
             f'Generate exactly {num_q} multiple-choice quiz questions about "{topic}" at {difficulty} difficulty.\n'
             f'Return ONLY a valid JSON array. Example:\n'
             f'[{{"question": "Q?", "options": ["A", "B", "C", "D"], "correct": 0, "explanation": "Why A.", "difficulty": "{difficulty}"}}]\n'
-            f'"correct" is the 0-based index of the correct option.' 
+            f'"correct" is the 0-based index of the correct option.'
         )
         raw = ai_complete(prompt, 2048); questions = extract_json(raw, [])
         if not isinstance(questions, list) or not questions:
@@ -496,10 +487,10 @@ def quiz_generate(user):
             except (TypeError, ValueError): q["correct"] = 0
         quiz_id = new_id()
         try:
-            get_supabase().table("quizzes").insert({
-                "id": quiz_id, "user_id": user.id, "title": f"{topic} Quiz",
+            get_db().quizzes.insert_one({
+                "id": quiz_id, "user_id": user["user_id"], "title": f"{topic} Quiz",
                 "topic": topic, "difficulty": difficulty, "questions": questions, "created_at": now_iso(),
-            }).execute()
+            })
         except Exception: pass
         return jsonify({"id": quiz_id, "title": f"{topic} Quiz", "topic": topic,
                         "difficulty": difficulty, "questions": questions}), 200
@@ -515,11 +506,10 @@ def quiz_submit(user, quiz_id):
         answers = data.get("answers", {}); time_taken = data.get("time_taken", 0)
         questions = []
         try:
-            q = get_supabase().table("quizzes").select("questions,user_id").eq("id", quiz_id).single().execute()
-            q_data = q.data or {}
-            if q_data.get("user_id") and q_data["user_id"] != user.id:
+            q_data = get_db().quizzes.find_one({"id": quiz_id})
+            if q_data and q_data.get("user_id") and q_data["user_id"] != user["user_id"]:
                 return jsonify({"error": "Quiz not found."}), 404
-            questions = q_data.get("questions", [])
+            questions = (q_data or {}).get("questions", [])
         except Exception: pass
         score, results = 0, []
         for i, q in enumerate(questions):
@@ -532,9 +522,10 @@ def quiz_submit(user, quiz_id):
                              "correct_answer": ca, "is_correct": ok, "explanation": q.get("explanation", "")})
         total = max(len(questions), 1); percentage = round(score / total * 100, 1); xp_earned = score * 50
         try:
-            sb = get_supabase(); prof = sb.table("users").select("total_xp").eq("id", user.id).single().execute()
-            old = (prof.data or {}).get("total_xp", 0)
-            sb.table("users").update({"total_xp": old + xp_earned}).eq("id", user.id).execute()
+            db = get_db()
+            prof = db.user_profiles.find_one({"user_id": user["user_id"]})
+            old_xp = (prof or {}).get("total_xp", 0)
+            db.user_profiles.update_one({"user_id": user["user_id"]}, {"$set": {"total_xp": old_xp + xp_earned}})
         except Exception: pass
         return jsonify({
             "attempt": {"id": new_id(), "quiz_id": quiz_id, "score": score, "total": total,
@@ -550,8 +541,8 @@ def quiz_submit(user, quiz_id):
 @require_auth
 def quiz_history(user):
     try:
-        r = get_supabase().table("quizzes").select("*").eq("user_id", user.id).order("created_at", desc=True).execute()
-        return jsonify(r.data or []), 200
+        docs = list(get_db().quizzes.find({"user_id": user["user_id"]}).sort("created_at", -1))
+        return jsonify([clean_doc(d) for d in docs]), 200
     except Exception: return jsonify([]), 200
 
 @app.route("/api/quiz/stats")
@@ -563,9 +554,9 @@ def quiz_stats(user):
 @require_auth
 def get_quiz(user, quiz_id):
     try:
-        r = get_supabase().table("quizzes").select("*").eq("id", quiz_id).eq("user_id", user.id).single().execute()
-        if not r.data: return jsonify({"error": "Quiz not found."}), 404
-        return jsonify(r.data), 200
+        doc = get_db().quizzes.find_one({"id": quiz_id, "user_id": user["user_id"]})
+        if not doc: return jsonify({"error": "Quiz not found."}), 404
+        return jsonify(clean_doc(doc)), 200
     except Exception: return jsonify({"error": "Quiz not found."}), 404
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -595,10 +586,10 @@ def notes_generate(user):
         for k in ["keyPoints", "examples", "formulas", "relatedTopics"]:
             ai_data[k] = [str(x) for x in (ai_data.get(k) or []) if x]
         note_id = new_id()
-        note = {"id": note_id, "user_id": user.id, "title": ai_data.get("title", topic),
+        note = {"id": note_id, "user_id": user["user_id"], "title": ai_data.get("title", topic),
                 "content": ai_data.get("content", ""), "tags": [subject, "AI-Generated"],
                 "subject": subject, "created_at": now_iso(), "updated_at": now_iso()}
-        try: get_supabase().table("notes").insert(note).execute()
+        try: get_db().notes.insert_one(dict(note))
         except Exception: pass
         return jsonify({"note": note, "ai_data": ai_data}), 200
     except Exception as e:
@@ -609,8 +600,8 @@ def notes_generate(user):
 @require_auth
 def notes_list(user):
     try:
-        r = get_supabase().table("notes").select("*").eq("user_id", user.id).order("created_at", desc=True).execute()
-        return jsonify(r.data or []), 200
+        docs = list(get_db().notes.find({"user_id": user["user_id"]}).sort("created_at", -1))
+        return jsonify([clean_doc(d) for d in docs]), 200
     except Exception: return jsonify([]), 200
 
 @app.route("/api/notes", methods=["POST"])
@@ -618,13 +609,13 @@ def notes_list(user):
 def notes_create(user):
     try:
         data = request.get_json() or {}; note_id = new_id()
-        note = {"id": note_id, "user_id": user.id,
+        note = {"id": note_id, "user_id": user["user_id"],
                 "title": sanitize(data.get("title", "Untitled"), 300),
                 "content": sanitize(data.get("content", ""), 50000),
                 "tags": data.get("tags", []) if isinstance(data.get("tags"), list) else [],
                 "subject": sanitize(data.get("subject", "General"), 100),
                 "created_at": now_iso(), "updated_at": now_iso()}
-        get_supabase().table("notes").insert(note).execute()
+        get_db().notes.insert_one(dict(note))
         return jsonify(note), 201
     except Exception as e:
         logger.error("Notes create error: %s", e)
@@ -635,18 +626,18 @@ def notes_create(user):
 def notes_search(user):
     q = sanitize(request.args.get("q", ""), 200)
     try:
-        r = get_supabase().table("notes").select("*").eq("user_id", user.id).ilike("title", f"%{escape_like(q)}%").execute()
-        return jsonify(r.data or []), 200
+        regex = re.compile(re.escape(q), re.IGNORECASE)
+        docs = list(get_db().notes.find({"user_id": user["user_id"], "$or": [{"title": regex}, {"content": regex}]}))
+        return jsonify([clean_doc(d) for d in docs]), 200
     except Exception: return jsonify([]), 200
 
 @app.route("/api/notes/<note_id>", methods=["GET"])
 @require_auth
 def notes_get(user, note_id):
-    """Auth-guarded: only the owning user can fetch their note."""
     try:
-        r = get_supabase().table("notes").select("*").eq("id", note_id).eq("user_id", user.id).single().execute()
-        if not r.data: return jsonify({"error": "Note not found."}), 404
-        return jsonify(r.data), 200
+        doc = get_db().notes.find_one({"id": note_id, "user_id": user["user_id"]})
+        if not doc: return jsonify({"error": "Note not found."}), 404
+        return jsonify(clean_doc(doc)), 200
     except Exception: return jsonify({"error": "Note not found."}), 404
 
 @app.route("/api/notes/<note_id>", methods=["PUT", "PATCH"])
@@ -657,7 +648,7 @@ def notes_update(user, note_id):
         safe = {k: (sanitize(str(v), 50000 if k == "content" else 300) if isinstance(v, str) else v)
                 for k, v in data.items() if k in {"title", "content", "tags", "subject"}}
         safe["updated_at"] = now_iso()
-        get_supabase().table("notes").update(safe).eq("id", note_id).eq("user_id", user.id).execute()
+        get_db().notes.update_one({"id": note_id, "user_id": user["user_id"]}, {"$set": safe})
         return jsonify({"id": note_id, **safe}), 200
     except Exception as e:
         logger.error("Notes update error: %s", e)
@@ -667,7 +658,7 @@ def notes_update(user, note_id):
 @require_auth
 def notes_delete(user, note_id):
     try:
-        get_supabase().table("notes").delete().eq("id", note_id).eq("user_id", user.id).execute()
+        get_db().notes.delete_one({"id": note_id, "user_id": user["user_id"]})
         return jsonify({"success": True, "message": "Note deleted"}), 200
     except Exception as e:
         logger.error("Notes delete error: %s", e)
@@ -698,9 +689,9 @@ def mindmap_generate(user):
                  "subtopics": [{"id": "st2", "label": "Industry Use", "summary": "Professional applications"}]},
             ]
         map_id = new_id()
-        result = {"id": map_id, "user_id": user.id, "title": f"{topic} Mind Map",
+        result = {"id": map_id, "user_id": user["user_id"], "title": f"{topic} Mind Map",
                   "topics": topics, "ai_generated": True, "created_at": now_iso()}
-        try: get_supabase().table("mindmaps").insert(result).execute()
+        try: get_db().mindmaps.insert_one(dict(result))
         except Exception: pass
         return jsonify(result), 200
     except Exception as e:
@@ -711,8 +702,8 @@ def mindmap_generate(user):
 @require_auth
 def mindmap_list(user):
     try:
-        r = get_supabase().table("mindmaps").select("*").eq("user_id", user.id).order("created_at", desc=True).execute()
-        return jsonify(r.data or []), 200
+        docs = list(get_db().mindmaps.find({"user_id": user["user_id"]}).sort("created_at", -1))
+        return jsonify([clean_doc(d) for d in docs]), 200
     except Exception: return jsonify([]), 200
 
 @app.route("/api/mindmap", methods=["POST"])
@@ -720,11 +711,11 @@ def mindmap_list(user):
 def mindmap_create(user):
     try:
         data = request.get_json() or {}; map_id = new_id()
-        mm = {"id": map_id, "user_id": user.id,
+        mm = {"id": map_id, "user_id": user["user_id"],
               "title": sanitize(data.get("title", "Untitled Map"), 300),
               "topics": data.get("topics", []) if isinstance(data.get("topics"), list) else [],
               "ai_generated": False, "created_at": now_iso()}
-        get_supabase().table("mindmaps").insert(mm).execute()
+        get_db().mindmaps.insert_one(dict(mm))
         return jsonify(mm), 201
     except Exception as e:
         logger.error("Mindmap create error: %s", e)
@@ -733,11 +724,10 @@ def mindmap_create(user):
 @app.route("/api/mindmap/<map_id>", methods=["GET"])
 @require_auth
 def mindmap_get(user, map_id):
-    """Auth-guarded: only the owning user can fetch their mind map."""
     try:
-        r = get_supabase().table("mindmaps").select("*").eq("id", map_id).eq("user_id", user.id).single().execute()
-        if not r.data: return jsonify({"error": "Mind map not found."}), 404
-        return jsonify(r.data), 200
+        doc = get_db().mindmaps.find_one({"id": map_id, "user_id": user["user_id"]})
+        if not doc: return jsonify({"error": "Mind map not found."}), 404
+        return jsonify(clean_doc(doc)), 200
     except Exception: return jsonify({"error": "Mind map not found."}), 404
 
 @app.route("/api/mindmap/<map_id>", methods=["PUT", "PATCH"])
@@ -747,7 +737,7 @@ def mindmap_update(user, map_id):
         data = request.get_json() or {}
         safe = {k: (sanitize(str(v), 300) if isinstance(v, str) else v)
                 for k, v in data.items() if k in {"title", "topics"}}
-        get_supabase().table("mindmaps").update(safe).eq("id", map_id).eq("user_id", user.id).execute()
+        get_db().mindmaps.update_one({"id": map_id, "user_id": user["user_id"]}, {"$set": safe})
         return jsonify({"id": map_id, **safe}), 200
     except Exception as e:
         logger.error("Mindmap update error: %s", e)
@@ -757,7 +747,7 @@ def mindmap_update(user, map_id):
 @require_auth
 def mindmap_delete(user, map_id):
     try:
-        get_supabase().table("mindmaps").delete().eq("id", map_id).eq("user_id", user.id).execute()
+        get_db().mindmaps.delete_one({"id": map_id, "user_id": user["user_id"]})
         return jsonify({"success": True}), 200
     except Exception as e:
         logger.error("Mindmap delete error: %s", e)
@@ -788,9 +778,9 @@ def study_plan_create(user):
                                  {"id": f"t-{i}-3", "title": "Take a quiz", "completed": False}]}
                      for i in range(weeks_n)]
         plan_id = new_id()
-        plan = {"id": plan_id, "user_id": user.id, "subject": subject, "duration_weeks": weeks_n,
+        plan = {"id": plan_id, "user_id": user["user_id"], "subject": subject, "duration_weeks": weeks_n,
                 "current_level": level, "progress": 0, "weeks": weeks, "created_at": now_iso()}
-        try: get_supabase().table("study_plans").insert(plan).execute()
+        try: get_db().study_plans.insert_one(dict(plan))
         except Exception: pass
         return jsonify(plan), 201
     except Exception as e:
@@ -801,17 +791,17 @@ def study_plan_create(user):
 @require_auth
 def study_plans_list(user):
     try:
-        r = get_supabase().table("study_plans").select("*").eq("user_id", user.id).order("created_at", desc=True).execute()
-        return jsonify(r.data or []), 200
+        docs = list(get_db().study_plans.find({"user_id": user["user_id"]}).sort("created_at", -1))
+        return jsonify([clean_doc(d) for d in docs]), 200
     except Exception: return jsonify([]), 200
 
 @app.route("/api/study/plan/<plan_id>")
 @require_auth
 def study_plan_get(user, plan_id):
     try:
-        r = get_supabase().table("study_plans").select("*").eq("id", plan_id).eq("user_id", user.id).single().execute()
-        if not r.data: return jsonify({"error": "Study plan not found."}), 404
-        return jsonify(r.data), 200
+        doc = get_db().study_plans.find_one({"id": plan_id, "user_id": user["user_id"]})
+        if not doc: return jsonify({"error": "Study plan not found."}), 404
+        return jsonify(clean_doc(doc)), 200
     except Exception: return jsonify({"error": "Study plan not found."}), 404
 
 @app.route("/api/study/plan/<plan_id>/progress", methods=["PUT", "PATCH"])
@@ -820,7 +810,7 @@ def study_plan_progress(user, plan_id):
     try:
         data = request.get_json() or {}
         prog = max(0, min(100, int(data.get("progress", 0))))
-        get_supabase().table("study_plans").update({"progress": prog}).eq("id", plan_id).eq("user_id", user.id).execute()
+        get_db().study_plans.update_one({"id": plan_id, "user_id": user["user_id"]}, {"$set": {"progress": prog}})
         return jsonify({"progress": prog}), 200
     except Exception as e:
         logger.error("Plan progress error: %s", e)
@@ -835,13 +825,14 @@ def study_session_create(user):
         subject = sanitize(data.get("subject", "General Study"), 200)
         notes_text = sanitize(data.get("notes", ""), 5000)
         xp = mins * 2
-        session = {"id": new_id(), "user_id": user.id, "duration_minutes": mins,
+        session = {"id": new_id(), "user_id": user["user_id"], "duration_minutes": mins,
                    "subject": subject, "notes": notes_text, "xp_earned": xp, "date": now_iso()}
         try:
-            get_supabase().table("study_sessions").insert(session).execute()
-            sb = get_supabase(); prof = sb.table("users").select("total_xp").eq("id", user.id).single().execute()
-            old = (prof.data or {}).get("total_xp", 0)
-            sb.table("users").update({"total_xp": old + xp}).eq("id", user.id).execute()
+            db = get_db()
+            db.study_sessions.insert_one(dict(session))
+            prof = db.user_profiles.find_one({"user_id": user["user_id"]})
+            old_xp = (prof or {}).get("total_xp", 0)
+            db.user_profiles.update_one({"user_id": user["user_id"]}, {"$set": {"total_xp": old_xp + xp}})
         except Exception: pass
         return jsonify(session), 201
     except Exception as e:
@@ -852,8 +843,8 @@ def study_session_create(user):
 @require_auth
 def study_stats(user):
     try:
-        r = get_supabase().table("study_sessions").select("*").eq("user_id", user.id).execute()
-        sessions = r.data or []
+        docs = list(get_db().study_sessions.find({"user_id": user["user_id"]}))
+        sessions = [clean_doc(d) for d in docs]
         total_mins = sum(s.get("duration_minutes", 0) for s in sessions)
         return jsonify({"total_sessions": len(sessions), "total_minutes": total_mins,
                         "xp_earned": total_mins * 2, "sessions": sessions}), 200
@@ -865,11 +856,14 @@ def study_stats(user):
 # ══════════════════════════════════════════════════════════════════════════
 def _leaderboard_data(order_col="total_xp"):
     try:
-        r = get_supabase().table("users").select("id,name,email,total_xp,current_streak,avatar_url").order(order_col, desc=True).limit(50).execute()
-        rows = r.data or []
-        for row in rows:
-            if not row.get("name"): row["name"] = (row.get("email") or "").split("@")[0]
-            row.pop("email", None)   # Never expose raw emails on leaderboard
+        docs = list(get_db().user_profiles.find({}, {"password": 0}).sort(order_col, -1).limit(50))
+        rows = []
+        for doc in docs:
+            clean_doc(doc)
+            row = {"id": doc.get("user_id"), "name": doc.get("name", ""),
+                   "total_xp": doc.get("total_xp", 0), "current_streak": doc.get("current_streak", 0),
+                   "avatar_url": doc.get("avatar_url", "")}
+            rows.append(row)
         return rows
     except Exception: return []
 
@@ -882,7 +876,8 @@ def leaderboard_streak(): return jsonify(_leaderboard_data("current_streak")), 2
 @app.route("/api/leaderboard/rank")
 def leaderboard_rank():
     user = get_user_from_token(); rows = _leaderboard_data("total_xp")
-    rank = next((i+1 for i, r in enumerate(rows) if r.get("id") == (user.id if user else "")), len(rows))
+    uid = (user or {}).get("user_id", "")
+    rank = next((i+1 for i, r in enumerate(rows) if r.get("id") == uid), len(rows))
     return jsonify({"rank": rank, "total_users": len(rows), "user": {}}), 200
 
 @app.route("/api/leaderboard")

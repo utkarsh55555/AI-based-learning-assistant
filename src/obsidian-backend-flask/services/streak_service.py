@@ -1,21 +1,21 @@
-from supabase_client import get_supabase
+from services.mongo_service import MongoService
 from datetime import datetime, timedelta
 
 class StreakService:
     @staticmethod
     def update_streak(user_id: str) -> dict:
         """Update user's study streak"""
-        result = get_supabase().table("user_profiles").select("last_activity_date, current_streak").eq("user_id", user_id).single().execute()
+        records = MongoService.get_records("user_profiles", filters={"user_id": user_id}, limit=1)
         
-        if not result.data:
+        if not records:
             return {"current_streak": 0, "streak_updated": False}
         
-        last_activity = result.data.get("last_activity_date")
-        current_streak = result.data.get("current_streak", 0)
+        profile = records[0]
+        last_activity = profile.get("last_activity_date")
+        current_streak = profile.get("current_streak", 0)
         
         today = datetime.utcnow().date()
         
-        # First activity
         if not last_activity:
             new_streak = 1
             streak_updated = True
@@ -24,23 +24,20 @@ class StreakService:
             days_diff = (today - last_date).days
             
             if days_diff == 0:
-                # Same day, no change
                 new_streak = current_streak
                 streak_updated = False
             elif days_diff == 1:
-                # Consecutive day, increment
                 new_streak = current_streak + 1
                 streak_updated = True
             else:
-                # Streak broken
                 new_streak = 1
                 streak_updated = True
         
-        # Update database
-        get_supabase().table("user_profiles").update({
+        # Update MongoDB
+        MongoService.update_record("user_profiles", user_id, {
             "current_streak": new_streak,
             "last_activity_date": today.isoformat()
-        }).eq("user_id", user_id).execute()
+        }, id_column="user_id")
         
         return {
             "current_streak": new_streak,
@@ -51,22 +48,20 @@ class StreakService:
     @staticmethod
     def get_streak_info(user_id: str) -> dict:
         """Get user's streak information"""
-        result = get_supabase().table("user_profiles").select(
-            "current_streak, longest_streak, last_activity_date"
-        ).eq("user_id", user_id).single().execute()
+        records = MongoService.get_records("user_profiles", filters={"user_id": user_id}, limit=1)
         
-        if not result.data:
+        if not records:
             return {
                 "current_streak": 0,
                 "longest_streak": 0,
                 "at_risk": False
             }
         
-        current_streak = result.data.get("current_streak", 0)
-        longest_streak = result.data.get("longest_streak", 0)
-        last_activity = result.data.get("last_activity_date")
+        profile = records[0]
+        current_streak = profile.get("current_streak", 0)
+        longest_streak = profile.get("longest_streak", 0)
+        last_activity = profile.get("last_activity_date")
         
-        # Check if streak is at risk (no activity today)
         at_risk = False
         if last_activity:
             last_date = datetime.fromisoformat(last_activity).date()

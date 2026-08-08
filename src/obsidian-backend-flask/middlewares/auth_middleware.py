@@ -1,61 +1,52 @@
 """
 middlewares/auth_middleware.py
 ==============================
-JWT / Supabase token verification and request-context injection.
+JWT token verification and request-context injection.
 
 Decorators
 ----------
   @require_auth      – endpoint requires a valid Bearer token
   @optional_auth     – injects user if token present, None otherwise
-
-The verified Supabase user is placed on `request.current_user`.
-The user's profile (with role) is placed on `request.user_profile`
-so that RBAC decorators downstream can read the role without an extra
-DB round-trip.
 """
 
 import time
 import logging
 from functools import wraps
 from flask import request
+import jwt
 from utils.response import error_response
 from config.settings import settings
-from supabase_client import get_supabase
+from services.mongo_service import MongoService
 
 logger = logging.getLogger(__name__)
 
+class MockUser:
+    def __init__(self, user_id):
+        self.id = user_id
+
+class MockUserResponse:
+    def __init__(self, user_id):
+        self.user = MockUser(user_id)
 
 # ── Token verification ─────────────────────────────────────────────────────
 
 def verify_token(token: str):
     """
-    Verify a Supabase access token.
-
-    Returns the Supabase UserResponse on success, None on failure.
-    Also enforces configurable session expiry (JWT_EXPIRY_SECONDS).
+    Verify a custom JWT access token.
+    Returns a MockUserResponse on success, None on failure.
     """
     try:
-        response = get_supabase().auth.get_user(token)
-        if not (response and response.user):
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        user_id = payload.get("sub")
+        if not user_id:
             return None
 
-        # Enforce server-side session expiry (belt-and-suspenders over JWT exp)
-        user = response.user
-        last_sign_in = getattr(user, 'last_sign_in_at', None)
-        if last_sign_in and settings.JWT_EXPIRY_SECONDS > 0:
-            # Supabase returns ISO-8601; compare via timestamp
-            import datetime
-            try:
-                if last_sign_in.endswith('Z'):
-                    last_sign_in = last_sign_in[:-1] + '+00:00'
-                sign_in_ts = datetime.datetime.fromisoformat(last_sign_in).timestamp()
-                if time.time() - sign_in_ts > settings.JWT_EXPIRY_SECONDS:
-                    return None  # Session too old
-            except Exception:
-                pass  # Can't parse timestamp – don't block
+        # Exp checks are handled automatically by PyJWT if 'exp' is in payload
+        return MockUserResponse(user_id)
 
-        return response
-
+    except jwt.ExpiredSignatureError:
+        logger.warning("[AUTH] Token expired")
+        return None
     except Exception as e:
         logger.warning("[AUTH] Token verification error: %s", e)
         return None
@@ -75,10 +66,10 @@ def _extract_token(auth_header: str) -> str | None:
 
 def require_auth(f):
     """
-    Decorator: endpoint requires a valid Supabase Bearer token.
+    Decorator: endpoint requires a valid Bearer token.
 
     Injects:
-      request.current_user  – Supabase UserResponse
+      request.current_user  – MockUserResponse (has .user.id)
       request.user_profile  – dict with profile + role (may be {})
     """
     @wraps(f)
@@ -135,13 +126,12 @@ def optional_auth(f):
 
 def _load_profile(user_response) -> dict:
     """
-    Attempt to load the user's profile from Supabase for role resolution.
+    Attempt to load the user's profile from MongoDB for role resolution.
     Returns {} on any error so auth never hard-fails on a missing profile.
     """
     try:
-        from services.supabase_service import SupabaseService
         user_id = user_response.user.id
-        profile = SupabaseService.get_record("user_profiles", user_id, "user_id")
-        return profile or {}
+        existing = MongoService.get_records("user_profiles", {"user_id": user_id}, limit=1)
+        return existing[0] if existing else {}
     except Exception:
         return {}
