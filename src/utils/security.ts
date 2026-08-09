@@ -135,7 +135,7 @@ export async function getCsrfToken(): Promise<string> {
   try {
     const response = await fetch(`${API_BASE}/api/csrf-token`, {
       method: 'GET',
-      credentials: 'omit',
+      credentials: 'same-origin',
     });
     if (!response.ok) throw new Error('Failed to fetch CSRF token');
     const data = await response.json();

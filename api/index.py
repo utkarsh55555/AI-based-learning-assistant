@@ -284,7 +284,7 @@ def signup():
         })), 201
     except Exception as e:
         logger.error("Signup error: %s", e)
-        return no_cache(jsonify({"error": "Signup failed. Please check your details."})), 400
+        return no_cache(jsonify({"error": f"Signup failed: {str(e)}" if os.environ.get("FLASK_DEBUG") else "Signup failed. Please try again."})), 500
 
 @app.route("/api/auth/login", methods=["POST"])
 @limiter.limit("20 per minute; 5 per 10 seconds")

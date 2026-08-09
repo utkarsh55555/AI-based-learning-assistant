@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ObsidianCore } from "./ObsidianCore";
 import { supabase } from "../utils/supabase";
 import { authAPI } from "../utils/api";
+import { isValidEmail } from "../utils/security";
 
 interface LoginScreenProps {
   onLogin: (user: {
@@ -124,6 +125,10 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       toast.error("Please fill in all fields.");
       return;
     }
+    if (!isValidEmail(email.trim())) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await authAPI.login(email.trim(), password);
@@ -151,6 +156,10 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !password || !confirmPassword) {
       toast.error("Please fill in all fields.");
+      return;
+    }
+    if (!isValidEmail(email.trim())) {
+      toast.error("Please enter a valid email address.");
       return;
     }
     if (password !== confirmPassword) {
