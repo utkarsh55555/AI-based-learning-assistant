@@ -1,12 +1,12 @@
 /**
  * utils/supabase.ts
  * =================
- * Supabase client for the frontend.
- * Used to trigger Google OAuth sign-in flow and listen for auth state changes.
+ * Supabase client — kept for backward-compatibility but NO LONGER REQUIRED
+ * for Google OAuth. Google OAuth now goes through the Flask backend directly.
  *
- * Required environment variables (in root .env and Vercel dashboard):
- *   VITE_SUPABASE_URL=https://your-project-id.supabase.co
- *   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+ * The supabase client initializes only if VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
+ * are present. If they are not set, supabase will be null and that is fine —
+ * all auth (email/password + Google OAuth) now works through the Flask backend.
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -16,18 +16,11 @@ const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
 
 const _configured = !!(supabaseUrl && supabaseAnonKey);
 
-if (!_configured) {
-  console.warn(
-    '[Supabase] VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is not set. ' +
-    'Google OAuth will not work. Add these to your Vercel environment variables.'
-  );
-}
-
 /**
  * supabase — Supabase JS client.
- * Will be `null` when the required env vars are not set, so that the app
- * doesn't crash at startup with "supabaseKey is required".
- * Always check `supabase` for null before calling auth methods.
+ * Will be `null` when the required env vars are not set.
+ * Google OAuth NO LONGER uses this — it goes through the backend API.
+ * Only check/use this if you are using Supabase for other features.
  */
 export const supabase: SupabaseClient | null = _configured
   ? createClient(supabaseUrl, supabaseAnonKey)

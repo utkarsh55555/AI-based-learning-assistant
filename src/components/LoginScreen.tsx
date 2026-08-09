@@ -4,8 +4,7 @@ import { Sparkles, Loader2, ShieldCheck, Eye, EyeOff, Mail, Lock, User } from "l
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { ObsidianCore } from "./ObsidianCore";
-import { supabase } from "../utils/supabase";
-import { authAPI } from "../utils/api";
+import { authAPI, initiateGoogleLogin, handleGoogleCallback, isGoogleCallbackUrl } from "../utils/api";
 import { isValidEmail } from "../utils/security";
 
 interface LoginScreenProps {
@@ -36,86 +35,53 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [name, setName] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // ── Google OAuth callback handler ──────────────────────────────────────────
-  // Only fires on a fresh redirect from Google (has access_token or code in URL)
+  // ── Google OAuth callback handler (Supabase-free) ──────────────────────────
+  // Fires on mount when Google redirects back with ?code=...
   useEffect(() => {
-    // supabase is null when VITE_SUPABASE_ANON_KEY is not configured
-    if (!supabase) return;
+    if (!isGoogleCallbackUrl()) return;
 
-    const hash = window.location.hash;
-    const isFreshOAuthCallback =
-      hash.includes("access_token") ||
-      hash.includes("error_description") ||
-      new URLSearchParams(window.location.search).has("code");
+    setIsProcessingCallback(true);
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session && isFreshOAuthCallback) {
-        setIsProcessingCallback(true);
-        try {
-          localStorage.setItem("access_token", session.access_token);
-          if (session.refresh_token) {
-            localStorage.setItem("refresh_token", session.refresh_token);
-          }
-
-          // Real Google profile data from Supabase metadata
-          const meta = session.user?.user_metadata || {};
-          const googleName =
-            meta.full_name || meta.name || session.user.email?.split("@")[0] || "User";
-          const googleEmail = session.user.email || "";
-          const googleAvatar = meta.avatar_url || meta.picture || "";
-
-          // Try backend first (creates XP profile etc.), fall back to Supabase data if offline
-          try {
-            const currentUser = await authAPI.getCurrentUser();
-            if (!currentUser?.user) throw new Error("Backend returned no user object");
-            const u = currentUser.user;
-            const userPayload = {
-              id: u.id,
-              name: u.name || googleName,
-              email: u.email || googleEmail,
-              avatar_url: u.avatar_url || googleAvatar,
-              isNewUser: u.is_new_user ?? false,
-              total_xp: u.total_xp,
-              current_streak: u.current_streak,
-            };
-            localStorage.setItem("user", JSON.stringify(userPayload));
-            onLogin(userPayload);
-            toast.success(`Welcome, ${userPayload.name}! 🎉`);
-          } catch (backendError: any) {
-            console.warn("[OAuth] Backend offline or returned no user, using Supabase session:", backendError.message);
-            const fallbackUser = {
-              id: session.user.id,
-              name: googleName,
-              email: googleEmail,
-              avatar_url: googleAvatar,
-              isNewUser: false,
-              total_xp: 0,
-              current_streak: 0,
-            };
-            localStorage.setItem("user", JSON.stringify(fallbackUser));
-            onLogin(fallbackUser);
-            toast.success(`Welcome, ${googleName}! 🎉`, {
-              description: "Running in offline mode — some features may be limited.",
-            });
-          }
-
-          // Clean URL so refresh doesn't re-trigger
-          window.history.replaceState(null, "", window.location.pathname);
-        } catch (error: any) {
-          console.error("OAuth callback error:", error);
-          toast.error(error?.message || "Sign-in failed. Please try again.");
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("refresh_token");
-        } finally {
-          setIsGoogleLoading(false);
+    handleGoogleCallback()
+      .then((result) => {
+        if (!result) {
           setIsProcessingCallback(false);
+          return;
         }
-      }
-    });
 
-    return () => subscription.unsubscribe();
+        // Store JWT — same pattern as email/password login
+        localStorage.setItem("access_token", result.access_token);
+
+        const userPayload = {
+          id:             result.user.id,
+          name:           result.user.name,
+          email:          result.user.email,
+          avatar_url:     result.user.avatar_url,
+          isNewUser:      result.user.isNewUser,
+          total_xp:       result.user.total_xp,
+          current_streak: result.user.current_streak,
+        };
+
+        localStorage.setItem("user", JSON.stringify(userPayload));
+        onLogin(userPayload);
+
+        toast.success(
+          result.user.isNewUser
+            ? `Welcome to Obsidian, ${result.user.name}! 🎉`
+            : `Welcome back, ${result.user.name}! 👋`
+        );
+      })
+      .catch((err: any) => {
+        console.error("Google OAuth callback error:", err);
+        if (err?.message && !err.message.toLowerCase().includes("cancel")) {
+          toast.error(err.message || "Google sign-in failed. Please try again.");
+        }
+        localStorage.removeItem("access_token");
+      })
+      .finally(() => {
+        setIsGoogleLoading(false);
+        setIsProcessingCallback(false);
+      });
   }, [onLogin]);
 
   // ── Email / Password Login ─────────────────────────────────────────────────
@@ -190,41 +156,24 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     }
   };
 
-  // ── Google OAuth ───────────────────────────────────────────────────────────
+  // ── Google OAuth (Supabase-free, direct backend) ───────────────────────────
   const handleGoogleLogin = async () => {
-    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-    const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      toast.error("Google Login is not configured.", {
-        description: "Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.",
-        duration: 8000,
-      });
-      return;
-    }
-
     setIsGoogleLoading(true);
     try {
-      if (!supabase) {
-        throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to Vercel environment variables.");
-      }
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: window.location.origin,
-          queryParams: {
-            access_type: "offline",
-            prompt: "select_account consent",
-          },
-        },
-      });
-      if (error) throw error;
-      // Browser redirects to Google — callback handled in useEffect above
+      // This will redirect the browser away — no return value expected
+      await initiateGoogleLogin();
+      // If we get here, redirect hasn't happened yet — keep loading spinner
     } catch (error: any) {
       console.error("Google login error:", error);
-      toast.error(error.message || "Failed to start Google Sign-In.");
+      toast.error(error.message || "Failed to start Google Sign-In.", {
+        description: error.message?.includes("configured")
+          ? "Ask the admin to add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to the server."
+          : undefined,
+        duration: 8000,
+      });
       setIsGoogleLoading(false);
     }
+    // Loading stays true while the browser redirects to Google
   };
 
   return (
@@ -509,7 +458,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
               <div className="flex items-center gap-2 mt-4 p-3 rounded-xl bg-blue-600/8 border border-blue-500/15">
                 <ShieldCheck className="w-4 h-4 text-blue-400 flex-shrink-0" />
                 <p className="text-xs text-muted-foreground">
-                  Your data is encrypted. Email/password and Google OAuth are both fully supported.
+                  Google sign-in is cryptographically verified server-side — only real Google accounts are accepted.
                 </p>
               </div>
             </>

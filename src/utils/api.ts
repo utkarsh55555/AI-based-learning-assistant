@@ -1430,3 +1430,143 @@ export const userAPI = {
     return apiRequest('/api/user/dashboard');
   },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Google OAuth 2.0 — Supabase-free direct backend flow
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Session storage keys for the OAuth CSRF state */
+const OAUTH_STATE_KEY       = 'obsidian_google_oauth_state';
+const OAUTH_REDIRECT_URI_KEY = 'obsidian_google_redirect_uri';
+
+/** Callback URI that must match what you set in Google Cloud Console */
+export function getGoogleRedirectUri(): string {
+  return `${window.location.origin}/auth/callback`;
+}
+
+/** Returns true when the current URL is a Google OAuth callback (?code= or ?error=) */
+export function isGoogleCallbackUrl(): boolean {
+  const p = new URLSearchParams(window.location.search);
+  return p.has('code') || p.has('error');
+}
+
+/**
+ * Kick off Google OAuth login.
+ * Asks the backend for a signed auth URL + state token, stores the state, then
+ * redirects the browser to Google's sign-in page.
+ */
+export async function initiateGoogleLogin(): Promise<void> {
+  const redirectUri = getGoogleRedirectUri();
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/auth/google/url?redirect_uri=${encodeURIComponent(redirectUri)}`,
+    { method: 'GET' }
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(
+      err.error ||
+      'Google OAuth is not configured on the server. Add GOOGLE_CLIENT_ID to your Vercel environment variables.'
+    );
+  }
+
+  const { url, state } = await response.json();
+
+  if (!url || !state) {
+    throw new Error('Invalid response from auth server. Please try again.');
+  }
+
+  sessionStorage.setItem(OAUTH_STATE_KEY, state);
+  sessionStorage.setItem(OAUTH_REDIRECT_URI_KEY, redirectUri);
+
+  // Hand control to Google
+  window.location.href = url;
+}
+
+export interface GoogleAuthUser {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string;
+  total_xp: number;
+  current_streak: number;
+  isNewUser: boolean;
+  auth_provider: string;
+}
+
+export interface GoogleAuthResult {
+  user: GoogleAuthUser;
+  access_token: string;
+}
+
+/**
+ * Handle the Google OAuth callback.
+ * Call this when you detect `isGoogleCallbackUrl()` is true.
+ * Validates CSRF state, exchanges the code with the backend, returns user + JWT.
+ * Returns null if the URL does not look like a Google callback at all.
+ * Throws a human-readable Error on any failure.
+ */
+export async function handleGoogleCallback(): Promise<GoogleAuthResult | null> {
+  const params = new URLSearchParams(window.location.search);
+  const code   = params.get('code');
+  const state  = params.get('state');
+  const error  = params.get('error');
+
+  if (!code && !error) return null;
+
+  // Always clean the URL (remove ?code=&state=)
+  window.history.replaceState(null, '', window.location.pathname);
+
+  if (error) {
+    if (error === 'access_denied') throw new Error('Google sign-in was cancelled.');
+    throw new Error(`Google sign-in failed: ${error}`);
+  }
+
+  if (!code) return null;
+
+  // Validate CSRF state
+  const storedState       = sessionStorage.getItem(OAUTH_STATE_KEY);
+  const storedRedirectUri = sessionStorage.getItem(OAUTH_REDIRECT_URI_KEY);
+  sessionStorage.removeItem(OAUTH_STATE_KEY);
+  sessionStorage.removeItem(OAUTH_REDIRECT_URI_KEY);
+
+  if (!storedState || storedState !== state) {
+    throw new Error(
+      'OAuth state mismatch — possible CSRF or expired session. Please try signing in again.'
+    );
+  }
+
+  const redirectUri = storedRedirectUri || getGoogleRedirectUri();
+
+  // Send code to backend → it verifies the Google ID token and issues our JWT
+  const resp = await fetch(`${API_BASE_URL}/api/auth/google/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, redirect_uri: redirectUri, state }),
+  });
+
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    throw new Error(data.error || 'Google sign-in failed. Please try again.');
+  }
+
+  if (!data.user || !data.access_token) {
+    throw new Error('Invalid response from server. Please try again.');
+  }
+
+  return {
+    user: {
+      id:             data.user.id,
+      name:           data.user.name,
+      email:          data.user.email,
+      avatar_url:     data.user.avatar_url || '',
+      total_xp:       data.user.total_xp ?? 0,
+      current_streak: data.user.current_streak ?? 0,
+      isNewUser:      data.user.is_new_user ?? false,
+      auth_provider:  data.user.auth_provider || 'google',
+    },
+    access_token: data.access_token,
+  };
+}

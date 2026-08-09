@@ -223,6 +223,7 @@ def no_cache(response):
 _CSRF_EXEMPT = {
     "health", "api_test", "api_root", "csrf_token",
     "signup", "login", "logout",
+    "google_auth_url", "google_auth_callback",
     "tutor_chat", "quiz_generate", "notes_generate", "mindmap_generate",
     "handle_options",
     "leaderboard_global", "leaderboard_streak", "leaderboard_rank", "leaderboard_fallback",
@@ -384,6 +385,187 @@ def me():
 def refresh_token():
     # With JWT, just re-authenticate. Stateless refresh not supported here.
     return no_cache(jsonify({"error": "Session expired. Please log in again."})), 401
+
+# ── Google OAuth 2.0 (Supabase-free) ──────────────────────────────────────
+# Required env vars:
+#   GOOGLE_CLIENT_ID     - your Google OAuth app client ID
+#   GOOGLE_CLIENT_SECRET - your Google OAuth app client secret
+
+GOOGLE_AUTH_URL    = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL   = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+GOOGLE_CERTS_URL   = "https://www.googleapis.com/oauth2/v3/certs"
+
+@app.route("/api/auth/google/url", methods=["GET"])
+def google_auth_url():
+    """Return the Google OAuth 2.0 authorization URL for the frontend to redirect to."""
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    if not client_id:
+        return no_cache(jsonify({"error": "Google OAuth is not configured. Add GOOGLE_CLIENT_ID to environment variables."})), 503
+
+    redirect_uri = request.args.get("redirect_uri", "")
+    if not redirect_uri:
+        return no_cache(jsonify({"error": "redirect_uri is required"})), 400
+
+    # State = short-lived HMAC token used as CSRF protection for the OAuth flow
+    state = generate_csrf_token()
+
+    import urllib.parse
+    params = {
+        "client_id":     client_id,
+        "redirect_uri":  redirect_uri,
+        "response_type": "code",
+        "scope":         "openid email profile",
+        "access_type":   "offline",
+        "prompt":        "select_account consent",
+        "state":         state,
+    }
+    url = GOOGLE_AUTH_URL + "?" + urllib.parse.urlencode(params)
+    return no_cache(jsonify({"url": url, "state": state})), 200
+
+
+@app.route("/api/auth/google/callback", methods=["POST"])
+@limiter.limit("20 per minute")
+def google_auth_callback():
+    """
+    Exchange a Google auth code for tokens, verify identity, and issue a JWT.
+    Body: { "code": str, "redirect_uri": str, "state": str }
+    """
+    client_id     = os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
+        return no_cache(jsonify({"error": "Google OAuth is not configured on the server."})), 503
+
+    data         = request.get_json() or {}
+    code         = (data.get("code") or "").strip()
+    redirect_uri = (data.get("redirect_uri") or "").strip()
+    state        = (data.get("state") or "").strip()
+
+    if not code:
+        return no_cache(jsonify({"error": "Authorization code is required."})), 400
+    if not redirect_uri:
+        return no_cache(jsonify({"error": "redirect_uri is required."})), 400
+
+    # ── Step 1: Exchange code for Google tokens ────────────────────────────
+    import requests as _requests
+    try:
+        token_resp = _requests.post(GOOGLE_TOKEN_URL, data={
+            "code":          code,
+            "client_id":     client_id,
+            "client_secret": client_secret,
+            "redirect_uri":  redirect_uri,
+            "grant_type":    "authorization_code",
+        }, timeout=10)
+        token_data = token_resp.json()
+        if not token_resp.ok or "id_token" not in token_data:
+            err = token_data.get("error_description") or token_data.get("error") or "Token exchange failed"
+            logger.error("Google token exchange failed: %s", token_data)
+            return no_cache(jsonify({"error": f"Google sign-in failed: {err}"})), 401
+    except Exception as e:
+        logger.error("Google token request error: %s", e)
+        return no_cache(jsonify({"error": "Could not contact Google authentication servers."})), 502
+
+    id_token_str = token_data["id_token"]
+
+    # ── Step 2: Verify the ID token using Google's public keys ─────────────
+    # This is the crucial step — it proves the user is a REAL Google account.
+    try:
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token as google_id_token
+
+        google_req = google_requests.Request()
+        id_info = google_id_token.verify_oauth2_token(
+            id_token_str,
+            google_req,
+            client_id,
+            clock_skew_in_seconds=10
+        )
+
+        # Must be issued by Google
+        if id_info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+            raise ValueError("Invalid token issuer")
+
+        # Email must be verified by Google
+        if not id_info.get("email_verified", False):
+            return no_cache(jsonify({"error": "Your Google email address has not been verified. Please verify it with Google first."})), 401
+
+    except Exception as e:
+        logger.error("Google ID token verification failed: %s", e)
+        return no_cache(jsonify({"error": "Google authentication verification failed. Please try again."})), 401
+
+    # ── Step 3: Extract real user info (guaranteed by Google) ─────────────
+    google_email  = (id_info.get("email") or "").lower().strip()
+    google_name   = id_info.get("name") or id_info.get("given_name") or google_email.split("@")[0]
+    google_avatar = id_info.get("picture") or ""
+    google_sub    = id_info.get("sub") or ""   # Google's stable unique user ID
+
+    if not google_email or "@" not in google_email:
+        return no_cache(jsonify({"error": "Could not retrieve a valid email from Google."})), 401
+
+    # ── Step 4: Upsert user in MongoDB ────────────────────────────────────
+    try:
+        db = get_db()
+        # Look up by google_sub first (most stable), fall back to email
+        profile = db.user_profiles.find_one({"google_sub": google_sub}) if google_sub else None
+        if not profile:
+            profile = db.user_profiles.find_one({"email": google_email})
+
+        if profile:
+            # Existing user — update Google metadata
+            user_id  = profile["user_id"]
+            is_new   = False
+            updates  = {"avatar_url": google_avatar, "is_new_user": False}
+            if google_sub and not profile.get("google_sub"):
+                updates["google_sub"] = google_sub
+            if not profile.get("name") and google_name:
+                updates["name"] = google_name
+            db.user_profiles.update_one({"user_id": user_id}, {"$set": updates})
+            profile.update(updates)
+        else:
+            # Brand-new Google user — create profile (no password stored)
+            user_id = new_id()
+            is_new  = True
+            profile = {
+                "user_id":       user_id,
+                "email":         google_email,
+                "name":          sanitize(google_name, 100),
+                "google_sub":    google_sub,
+                "avatar_url":    google_avatar,
+                "password":      "",          # no password for OAuth users
+                "total_xp":      0,
+                "current_streak": 0,
+                "bio":           "",
+                "is_new_user":   True,
+                "auth_provider": "google",
+                "created_at":    now_iso(),
+            }
+            db.user_profiles.insert_one(profile)
+
+        # ── Step 5: Issue JWT ──────────────────────────────────────────────
+        access_token = generate_token(user_id)
+
+        return no_cache(jsonify({
+            "user": {
+                "id":             user_id,
+                "email":          google_email,
+                "name":           profile.get("name", google_name),
+                "avatar_url":     profile.get("avatar_url", google_avatar),
+                "total_xp":       profile.get("total_xp", 0),
+                "current_streak": profile.get("current_streak", 0),
+                "is_new_user":    is_new,
+                "auth_provider":  "google",
+            },
+            "access_token": access_token,
+            "refresh_token": None,
+        })), 200
+
+    except Exception as e:
+        logger.error("Google OAuth DB/JWT error: %s", e)
+        err_msg = str(e)
+        if "MONGO_URI" in err_msg:
+            return no_cache(jsonify({"error": "Database not configured. Add MONGO_URI to environment variables."})), 503
+        return no_cache(jsonify({"error": "Sign-in failed. Please try again."})), 500
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # USER PROFILE

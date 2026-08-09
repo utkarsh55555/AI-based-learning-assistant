@@ -34,7 +34,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
 import { authAPI, userAPI } from "./utils/api";
-import { supabase } from "./utils/supabase";
 import {
   getUserStats,
   updateDailyStreak,
@@ -260,16 +259,13 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      // Sign out from Supabase (clears Google OAuth session)
-      await supabase.auth.signOut();
-    } catch (e) {
-      console.warn('Supabase signOut error (non-fatal):', e);
-    }
-    try {
       await authAPI.logout();
     } catch (error: any) {
       console.warn("Backend logout failed (non-fatal):", error);
     }
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
     setUser(null);
     setUserAvatar("");
     setCurrentView("landing");
@@ -400,8 +396,11 @@ export default function App() {
     );
   }
 
-  // Login Screen
-  if (!user) {
+  // Login Screen — also shown when Google OAuth callback arrives (?code= or ?error=)
+  const isOAuthCallback = new URLSearchParams(window.location.search).has('code') ||
+    new URLSearchParams(window.location.search).has('error');
+
+  if (!user || isOAuthCallback) {
     return (
       <>
         <LoginScreen onLogin={handleLogin} />
