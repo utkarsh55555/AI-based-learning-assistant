@@ -61,8 +61,12 @@ async function apiRequest<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // Attach CSRF token for all state-changing requests
-  if (CSRF_METHODS.has(method) && !useMockApi) {
+  // Auth endpoints are NEVER served from mock — always require real backend or Google OAuth
+  const isAuthEndpoint = AUTH_ENDPOINTS.some(ep => endpoint.startsWith(ep));
+
+  // Attach CSRF token for state-changing requests, but skip for auth endpoints
+  // (they are CSRF-exempt on the backend, so fetching a token is wasted latency)
+  if (CSRF_METHODS.has(method) && !useMockApi && !isAuthEndpoint) {
     try {
       const csrfToken = await getCsrfToken();
       if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
@@ -71,8 +75,6 @@ async function apiRequest<T>(
     }
   }
 
-  // Auth endpoints are NEVER served from mock — always require real backend or Google OAuth
-  const isAuthEndpoint = AUTH_ENDPOINTS.some(ep => endpoint.startsWith(ep));
 
   if (useMockApi && !isAuthEndpoint) {
     return handleMockRequest<T>(endpoint, options);

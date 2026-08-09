@@ -6,6 +6,16 @@ Database: MongoDB Atlas via PyMongo.
 """
 
 import os, re, json, uuid, hmac, hashlib, secrets, time, logging
+
+# Load .env files (local dev — Vercel uses dashboard env vars)
+try:
+    from dotenv import load_dotenv
+    for _p in [".env", "src/obsidian-backend-flask/.env", "../src/obsidian-backend-flask/.env"]:
+        if os.path.exists(_p):
+            load_dotenv(_p, override=False)
+except ImportError:
+    pass
+
 from datetime import datetime
 from functools import wraps
 from flask import Flask, request, jsonify, make_response
@@ -99,16 +109,25 @@ def sanitize_prompt(value, max_len: int = 500):
 # ── MongoDB singleton ──────────────────────────────────────────────────────
 _mongo_client = None
 _mongo_db = None
+_mongo_error = None
 
 def get_db():
-    global _mongo_client, _mongo_db
-    if _mongo_db is None:
-        uri = os.environ.get("MONGO_URI", "")
-        if not uri:
-            raise RuntimeError("MONGO_URI environment variable is not set.")
-        _mongo_client = MongoClient(uri)
+    global _mongo_client, _mongo_db, _mongo_error
+    if _mongo_db is not None:
+        return _mongo_db
+    uri = os.environ.get("MONGO_URI", "")
+    if not uri:
+        _mongo_error = "MONGO_URI environment variable is not set. Add it in Vercel Dashboard → Settings → Environment Variables."
+        raise RuntimeError(_mongo_error)
+    try:
+        _mongo_client = MongoClient(uri, serverSelectionTimeoutMS=3000)
         _mongo_db = _mongo_client.get_default_database()
-    return _mongo_db
+        _mongo_error = None
+        return _mongo_db
+    except Exception as e:
+        _mongo_error = f"MongoDB connection failed: {e}"
+        _mongo_db = None
+        raise RuntimeError(_mongo_error)
 
 def clean_doc(doc):
     """Convert MongoDB ObjectId to string for JSON serialization."""
@@ -232,10 +251,22 @@ def handle_options():
 # HEALTH / INFO
 # ══════════════════════════════════════════════════════════════════════════
 @app.route("/health")
-def health(): return jsonify({"status": "healthy", "message": "Obsidian API is running"}), 200
+def health():
+    mongo_ok = bool(os.environ.get("MONGO_URI"))
+    return jsonify({
+        "status": "healthy" if mongo_ok else "degraded",
+        "message": "Obsidian API is running",
+        "mongo_configured": mongo_ok,
+    }), 200
 
 @app.route("/api/test")
-def api_test(): return jsonify({"status": "ok", "message": "Backend is reachable"}), 200
+def api_test():
+    mongo_ok = bool(os.environ.get("MONGO_URI"))
+    return jsonify({
+        "status": "ok" if mongo_ok else "degraded",
+        "message": "Backend is reachable" if mongo_ok else "Backend reachable but MONGO_URI not set",
+        "mongo_configured": mongo_ok,
+    }), 200
 
 @app.route("/api/")
 @app.route("/api")
@@ -284,7 +315,10 @@ def signup():
         })), 201
     except Exception as e:
         logger.error("Signup error: %s", e)
-        return no_cache(jsonify({"error": f"Signup failed: {str(e)}" if os.environ.get("FLASK_DEBUG") else "Signup failed. Please try again."})), 500
+        err_msg = str(e)
+        if "MONGO_URI" in err_msg:
+            return no_cache(jsonify({"error": "Database not configured. The admin needs to add MONGO_URI in Vercel environment variables."})), 503
+        return no_cache(jsonify({"error": f"Signup failed: {err_msg}"})), 500
 
 @app.route("/api/auth/login", methods=["POST"])
 @limiter.limit("20 per minute; 5 per 10 seconds")
@@ -320,7 +354,10 @@ def login():
         })), 200
     except Exception as e:
         logger.error("Login error: %s", e)
-        return no_cache(jsonify({"error": "Login failed. Please check your credentials."})), 401
+        err_msg = str(e)
+        if "MONGO_URI" in err_msg:
+            return no_cache(jsonify({"error": "Database not configured. The admin needs to add MONGO_URI in Vercel environment variables."})), 503
+        return no_cache(jsonify({"error": f"Login failed: {err_msg}"})), 401
 
 @app.route("/api/auth/logout", methods=["POST"])
 def logout():
