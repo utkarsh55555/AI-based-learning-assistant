@@ -121,7 +121,12 @@ def get_db():
         raise RuntimeError(_mongo_error)
     try:
         _mongo_client = MongoClient(uri, serverSelectionTimeoutMS=3000)
-        _mongo_db = _mongo_client.get_default_database()
+        try:
+            _mongo_db = _mongo_client.get_default_database()
+        except Exception:
+            _mongo_db = _mongo_client["Obsidian"]
+        if not _mongo_db.name or _mongo_db.name == "admin":
+            _mongo_db = _mongo_client["Obsidian"]
         _mongo_error = None
         return _mongo_db
     except Exception as e:
