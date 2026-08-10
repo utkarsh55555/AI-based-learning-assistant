@@ -4,10 +4,13 @@ import logging
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Load .env file from the backend directory
+# Load .env file from the backend directory and root project directory
 backend_dir = Path(__file__).parent.parent
-env_path = backend_dir / ".env"
-load_dotenv(dotenv_path=env_path, override=True)
+root_dir = backend_dir.parent.parent
+
+for env_candidate in [backend_dir / ".env", root_dir / ".env"]:
+    if env_candidate.exists():
+        load_dotenv(dotenv_path=env_candidate, override=True)
 
 # ── Module-level logging configuration ────────────────────────────────────────
 # All Flask backend modules inherit this configuration.

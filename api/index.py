@@ -153,11 +153,36 @@ def get_ai():
     global _ai
     if _ai is None:
         from openai import OpenAI
-        # Using the key provided by the user for immediate functionality
         api_key = os.environ.get("OPENROUTER_API_KEY")
+        
+        # Direct fallback manual scan of .env files if os.environ doesn't have it
         if not api_key:
-            raise ValueError("OPENROUTER_API_KEY environment variable is missing")
-        if not api_key: raise RuntimeError("OPENROUTER_API_KEY is not configured.")
+            for _p in [
+                ".env", 
+                "../.env", 
+                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+                "src/obsidian-backend-flask/.env",
+                "../src/obsidian-backend-flask/.env"
+            ]:
+                if os.path.exists(_p):
+                    try:
+                        with open(_p, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line.startswith("OPENROUTER_API_KEY="):
+                                    parsed_key = line.split("=", 1)[1].strip().strip("'").strip('"')
+                                    if parsed_key:
+                                        api_key = parsed_key
+                                        os.environ["OPENROUTER_API_KEY"] = api_key
+                                        break
+                    except Exception:
+                        pass
+                if api_key:
+                    break
+
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is missing. Please ensure OPENROUTER_API_KEY is present in your .env file.")
+            
         _ai = OpenAI(api_key=api_key,
                      base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
                      default_headers={
