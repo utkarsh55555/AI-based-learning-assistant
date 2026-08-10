@@ -10,9 +10,15 @@ import os, re, json, uuid, hmac, hashlib, secrets, time, logging
 # Load .env files (local dev — Vercel uses dashboard env vars)
 try:
     from dotenv import load_dotenv
-    for _p in [".env", "src/obsidian-backend-flask/.env", "../src/obsidian-backend-flask/.env"]:
+    for _p in [
+        ".env", 
+        "../.env", 
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+        "src/obsidian-backend-flask/.env", 
+        "../src/obsidian-backend-flask/.env"
+    ]:
         if os.path.exists(_p):
-            load_dotenv(_p, override=False)
+            load_dotenv(_p, override=True)
 except ImportError:
     pass
 
