@@ -60,3 +60,26 @@ def get_history():
         
     except Exception as e:
         return error_response(str(e), status_code=500)
+
+@tutor_bp.route('/upload', methods=['POST'])
+@require_auth
+def upload_file():
+    """Extract text from an uploaded document"""
+    try:
+        if 'file' not in request.files:
+            return error_response("No file part in the request", status_code=400)
+            
+        file = request.files['file']
+        
+        if file.filename == '':
+            return error_response("No selected file", status_code=400)
+            
+        text = TutorController.extract_text(file, file.filename)
+        
+        return success_response({
+            "filename": file.filename,
+            "extracted_text": text
+        })
+        
+    except Exception as e:
+        return error_response(str(e), status_code=500)

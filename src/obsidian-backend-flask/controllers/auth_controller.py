@@ -1,122 +1,129 @@
-from supabase_client import get_supabase, get_supabase_admin
-from services.supabase_service import SupabaseService
+import jwt
+import time
+from werkzeug.security import generate_password_hash, check_password_hash
+from services.mongo_service import MongoService
+from config.settings import settings
+import uuid
+
 
 class AuthController:
     @staticmethod
     def signup(email: str, password: str, name: str):
-        """Register a new user"""
+        """Register a new user in MongoDB."""
+        email = email.lower().strip()
+        
+        # Check if user exists
+        existing = MongoService.get_records("user_profiles", {"email": email}, limit=1)
+        if existing:
+            raise Exception("An account with this email already exists. Please log in instead.")
+            
+        # Hash password and create user
+        hashed_password = generate_password_hash(password)
+        
+        # Generate a unique string for user_id similar to Supabase UUID
+        user_id = str(uuid.uuid4())
+        
+        profile_data = {
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "password": hashed_password,
+            "total_xp": 0,
+            "current_streak": 0,
+            "longest_streak": 0,
+            "is_new_user": True
+        }
+        
         try:
-            # Create auth user
-            supabase_client = get_supabase()
-            auth_response = supabase_client.auth.sign_up({
-                "email": email,
-                "password": password
-            })
-            
-            if auth_response.user:
-                # Create user profile using admin client to bypass RLS
-                # This is safe because we're on the server side and the user_id matches the authenticated user
-                profile_data = {
-                    "user_id": auth_response.user.id,
-                    "email": email,
-                    "name": name,
-                    "total_xp": 0,
-                    "current_streak": 0,
-                    "longest_streak": 0,
-                    "is_new_user": True
-                }
-                
-                # Use admin client to bypass RLS for initial profile creation
-                # The service role key should bypass all RLS policies
-                try:
-                    SupabaseService.create_record("user_profiles", profile_data, use_admin=True)
-                except Exception as profile_error:
-                    # Log the full error for debugging
-                    error_msg = str(profile_error)
-                    print(f"[ERROR] Failed to create user profile: {error_msg}")
-                    print(f"[DEBUG] User ID: {auth_response.user.id}")
-                    print(f"[DEBUG] Profile data: {profile_data}")
-                    # Re-raise with more context
-                    raise Exception(
-                        f"Failed to create user profile during signup: {error_msg}. "
-                        f"Please verify that SUPABASE_SERVICE_KEY is set correctly in .env file."
-                    ) from profile_error
-                
-                return {
-                    "user": auth_response.user,
-                    "session": auth_response.session,
-                    "is_new_user": True
-                }
-            
-            return None
-            
+            profile = MongoService.create_record("user_profiles", profile_data)
         except Exception as e:
-            raise Exception(f"Signup error: {str(e)}")
-    
+            raise Exception(f"Failed to create user profile during signup: {str(e)}")
+            
+        session_token = AuthController._generate_token(user_id)
+        
+        # Return mock user/session objects matching the frontend's expected structure
+        user = {"id": user_id, "email": email}
+        session = {"access_token": session_token, "user": user}
+        
+        return {
+            "user": user,
+            "session": session,
+            "is_new_user": True
+        }
+
     @staticmethod
     def login(email: str, password: str):
-        """Login user"""
-        try:
-            supabase_client = get_supabase()
-            auth_response = supabase_client.auth.sign_in_with_password({
-                "email": email,
-                "password": password
-            })
+        """Login user."""
+        email = email.lower().strip()
+        
+        existing = MongoService.get_records("user_profiles", {"email": email}, limit=1)
+        if not existing:
+            raise Exception("No account found with this email. Please sign up first.")
             
-            if auth_response.user:
-                # Get user profile
-                profile = SupabaseService.get_record(
-                    "user_profiles", 
-                    auth_response.user.id, 
-                    "user_id"
-                )
-                
-                # Mark user as not new after first login
-                if profile and profile.get("is_new_user"):
-                    SupabaseService.update_record(
-                        "user_profiles",
-                        auth_response.user.id,
-                        {"is_new_user": False},
-                        "user_id"
-                    )
-                
-                return {
-                    "user": auth_response.user,
-                    "session": auth_response.session,
-                    "profile": profile
-                }
+        profile = existing[0]
+        
+        # Check password
+        if "password" not in profile or not check_password_hash(profile["password"], password):
+            raise Exception("Invalid credentials.")
             
-            return None
+        # Mark user as not new after first login
+        if profile.get("is_new_user"):
+            profile = MongoService.update_record("user_profiles", profile["_id"], {"is_new_user": False}, id_column="_id")
             
-        except Exception as e:
-            raise Exception(f"Login error: {str(e)}")
-    
+        # Hide password hash from return data
+        profile_safe = {k: v for k, v in profile.items() if k != "password"}
+        
+        user_id = profile["user_id"]
+        session_token = AuthController._generate_token(user_id)
+        
+        user = {"id": user_id, "email": email}
+        session = {"access_token": session_token, "user": user}
+        
+        return {
+            "user": user,
+            "session": session,
+            "profile": profile_safe
+        }
+
     @staticmethod
     def logout(access_token: str):
-        """Logout user"""
-        try:
-            supabase_client = get_supabase()
-            supabase_client.auth.sign_out()
-            return True
-        except Exception as e:
-            raise Exception(f"Logout error: {str(e)}")
-    
+        """Logout user (client-side clears token, stateless backend)."""
+        return True
+
     @staticmethod
     def get_current_user(access_token: str):
-        """Get current user from token"""
+        """Get current user from token."""
         try:
-            supabase_client = get_supabase()
-            user = supabase_client.auth.get_user(access_token)
-            if user:
-                profile = SupabaseService.get_record(
-                    "user_profiles",
-                    user.user.id,
-                    "user_id"
-                )
-                return {
-                    "user": user.user,
-                    "profile": profile
-                }
-            return None
+            payload = jwt.decode(access_token, settings.SECRET_KEY, algorithms=["HS256"])
+            user_id = payload.get("sub")
+            if not user_id:
+                return None
+                
+            existing = MongoService.get_records("user_profiles", {"user_id": user_id}, limit=1)
+            if not existing:
+                return None
+                
+            profile = existing[0]
+            profile_safe = {k: v for k, v in profile.items() if k != "password"}
+            
+            user = {"id": user_id, "email": profile["email"]}
+            
+            return {
+                "user": user,
+                "profile": profile_safe
+            }
+        except jwt.ExpiredSignatureError:
+            raise Exception("Session expired. Please log in again.")
+        except jwt.InvalidTokenError:
+            raise Exception("Invalid session token.")
         except Exception as e:
             raise Exception(f"Get user error: {str(e)}")
+            
+    @staticmethod
+    def _generate_token(user_id: str) -> str:
+        payload = {
+            "sub": user_id,
+            "iat": int(time.time()),
+            "exp": int(time.time()) + settings.JWT_EXPIRY_SECONDS
+        }
+        return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")

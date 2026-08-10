@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "./components/ui/button";
 import { ObsidianCore } from "./components/ObsidianCore";
 import { LoginScreen } from "./components/LoginScreen";
@@ -33,7 +33,16 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
-import { authAPI } from "./utils/api";
+import { authAPI, userAPI } from "./utils/api";
+import {
+  getUserStats,
+  updateDailyStreak,
+  onStatsUpdated,
+  xpForNextLevel,
+  computeLevel,
+  syncStatsFromServer,
+  type UserStats,
+} from "./utils/userStatsStore";
 
 type View = "landing" | "dashboard" | "chat" | "quiz" | "planner" | "notes" | "mindmap" | "leaderboard" | "timer" | "profile";
 
@@ -43,6 +52,7 @@ interface User {
   email: string;
   isNewUser?: boolean;
   avatar?: string;
+  avatar_url?: string;
   total_xp?: number;
   current_streak?: number;
 }
@@ -51,28 +61,78 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>("landing");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [user, setUser] = useState<User | null>(null);
-  const [userAvatar, setUserAvatar] = useState("https://images.unsplash.com/photo-1638639930738-11a71fca1b4e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjdXRlJTIwY2F0JTIwcG9ydHJhaXR8ZW58MXx8fHwxNzYwMDI3NTQ2fDA&ixlib=rb-4.1.0&q=80&w=400");
+  const [userAvatar, setUserAvatar] = useState("");
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [liveStats, setLiveStats] = useState<UserStats | null>(null);
+
+  // Load live stats whenever they change
+  const refreshStats = useCallback(() => {
+    if (user?.id) {
+      setLiveStats(getUserStats(user.id));
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    refreshStats();
+    const unsub = onStatsUpdated(refreshStats);
+    return unsub;
+  }, [refreshStats]);
+
+  // Listen for achievement unlocks and show toast
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const names: string[] = (e as CustomEvent).detail || [];
+      names.forEach((name, i) => {
+        setTimeout(() => {
+          toast.success(`🏆 Achievement Unlocked: ${name}!`, {
+            description: "Keep up the great work!",
+            duration: 5000,
+          });
+        }, i * 800);
+      });
+    };
+    window.addEventListener("obsidian-achievement", handler);
+    return () => window.removeEventListener("obsidian-achievement", handler);
+  }, []);
 
   // Check if user is already logged in on mount
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('access_token');
       const storedUser = localStorage.getItem('user');
-      
+
       if (token && storedUser) {
         try {
           const currentUser = await authAPI.getCurrentUser();
           if (currentUser && currentUser.user) {
+            const savedProfiles = JSON.parse(localStorage.getItem('customProfiles') || '{}');
+            const profile = savedProfiles[currentUser.user.id] || {};
+            
+            // Sync cloud stats
+            try {
+              const userProfile = await userAPI.getProfile();
+              if (userProfile?.preferences && Object.keys(userProfile.preferences).length > 0) {
+                syncStatsFromServer(currentUser.user.id.toString(), userProfile.preferences);
+              }
+            } catch (e) {
+              console.warn("Failed to sync cloud stats on load:", e);
+            }
+
             setUser({
               id: currentUser.user.id,
-              name: currentUser.user.name || '',
-              email: currentUser.user.email,
+              name: profile.name || currentUser.user.name || '',
+              email: profile.email || currentUser.user.email,
               isNewUser: false,
               total_xp: currentUser.user.total_xp,
               current_streak: currentUser.user.current_streak
             });
-            setCurrentView("dashboard");
+            // Use avatar from custom profile, then from backend user, then from stored user
+            const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const resolvedAvatar = profile.avatar || currentUser.user.avatar_url || storedUser.avatar_url || '';
+            if (resolvedAvatar) {
+              setUserAvatar(resolvedAvatar);
+            }
+            // setCurrentView("dashboard"); // Prevent skipping landing page
           }
         } catch (error) {
           // Token invalid or expired, clear storage
@@ -99,22 +159,90 @@ export default function App() {
     { id: "profile" as View, label: "Profile", icon: User },
   ];
 
-  const handleLogin = (userData: User) => {
-    setUser(userData);
-    setCurrentView("dashboard");
+  const handleLogin = (userData: User & { avatar_url?: string }) => {
+    const savedProfiles = JSON.parse(localStorage.getItem('customProfiles') || '{}');
+    const profile = savedProfiles[userData.id || ''] || {};
     
+    const loggedInUser = { 
+      ...userData, 
+      name: profile.name || userData.name, 
+      email: profile.email || userData.email 
+    };
+    setUser(loggedInUser);
+    
+    // Resolve avatar: custom > Google OAuth avatar_url > google picture
+    const resolvedAvatar = profile.avatar || userData.avatar || userData.avatar_url || '';
+    if (resolvedAvatar) {
+      setUserAvatar(resolvedAvatar);
+    }
+    
+    // Update daily streak on login
+    if (userData.id) {
+      // Fetch cloud stats and sync
+      userAPI.getProfile().then(userProfile => {
+        if (userProfile?.preferences && Object.keys(userProfile.preferences).length > 0) {
+          syncStatsFromServer(userData.id!.toString(), userProfile.preferences);
+        }
+        updateDailyStreak(userData.id!);
+        setLiveStats(getUserStats(userData.id!));
+      }).catch(e => {
+        console.warn("Failed to sync cloud stats on login:", e);
+        updateDailyStreak(userData.id!);
+        setLiveStats(getUserStats(userData.id!));
+      });
+    }
+
+    setCurrentView("dashboard");
+
     // Welcome message with user's name - different for new vs returning users
     setTimeout(() => {
+      const displayName = profile.name || userData.name;
       if (userData.isNewUser) {
-        toast.success(`🎉 Welcome, ${userData.name}!`, {
+        toast.success(`🎉 Welcome, ${displayName}!`, {
           description: "Let's start your learning journey together! 🚀"
         });
       } else {
-        toast.success(`👋 Welcome back, ${userData.name}!`, {
+        toast.success(`👋 Welcome back, ${displayName}!`, {
           description: "Ready to continue your learning journey?"
         });
       }
     }, 500);
+  };
+
+  const handleProfileUpdate = async (updatedProfile: { name: string; email: string; avatar: string }) => {
+    if (!user?.id) return;
+    
+    // Optimistic local update
+    setUser({ ...user, name: updatedProfile.name, email: updatedProfile.email });
+    setUserAvatar(updatedProfile.avatar);
+    
+    const savedProfiles = JSON.parse(localStorage.getItem('customProfiles') || '{}');
+    savedProfiles[user.id] = {
+      name: updatedProfile.name,
+      email: updatedProfile.email,
+      avatar: updatedProfile.avatar
+    };
+    localStorage.setItem('customProfiles', JSON.stringify(savedProfiles));
+
+    // Also update the main user object in localStorage so it doesn't get out of sync
+    const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    if (storedUser) {
+      storedUser.name = updatedProfile.name;
+      storedUser.email = updatedProfile.email;
+      storedUser.avatar_url = updatedProfile.avatar;
+      localStorage.setItem('user', JSON.stringify(storedUser));
+    }
+
+    // Persist to backend so it works across devices
+    try {
+      await userAPI.updateProfile({
+        name: updatedProfile.name,
+        avatar_url: updatedProfile.avatar,
+        email: updatedProfile.email,
+      });
+    } catch (error) {
+      console.error("Failed to sync profile to backend:", error);
+    }
   };
 
   // Show loading state while checking auth
@@ -132,26 +260,26 @@ export default function App() {
   const handleLogout = async () => {
     try {
       await authAPI.logout();
-      setUser(null);
-      setCurrentView("landing");
-      toast.success("Logged out successfully");
     } catch (error: any) {
-      console.error("Logout error:", error);
-      // Still logout locally even if API call fails
-      setUser(null);
-      setCurrentView("landing");
-      toast.info("Logged out");
+      console.warn("Backend logout failed (non-fatal):", error);
     }
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
+    setUser(null);
+    setUserAvatar("");
+    setCurrentView("landing");
+    toast.success("Logged out successfully");
   };
 
   // Landing Page
-  if (currentView === "landing" && !user) {
+  if (currentView === "landing") {
     return (
       <>
         <div className="size-full flex items-center justify-center relative overflow-hidden">
           {/* Stealth Blue Gradient Background */}
           <div className="absolute inset-0 bg-gradient-to-br from-[#0A0A0A] via-[#0F1419] to-[#0A0A0A]" />
-          
+
           {/* Electric Blue Floating Particles */}
           <div className="absolute inset-0">
             {[...Array(20)].map((_, i) => (
@@ -246,7 +374,7 @@ export default function App() {
                 }}
                 className="gradient-blue hover:opacity-90 px-8 py-6 text-lg pulse-glow neon-border relative overflow-hidden group"
               >
-                <span className="relative z-10 font-semibold">Start Learning</span>
+                <span className="relative z-10 font-semibold">{user ? "Go to Dashboard" : "Start Learning"}</span>
                 <Sparkles className="w-5 h-5 ml-2 relative z-10" />
                 <div className="absolute inset-0 shimmer opacity-0 group-hover:opacity-100 transition-opacity" />
               </Button>
@@ -259,7 +387,7 @@ export default function App() {
               transition={{ delay: 1 }}
               className="text-sm text-muted-foreground"
             >
-              Built by Team Obsidian ✨
+              Built by Utkarsh ✨
             </motion.p>
           </motion.div>
         </div>
@@ -268,8 +396,11 @@ export default function App() {
     );
   }
 
-  // Login Screen
-  if (!user) {
+  // Login Screen — also shown when Google OAuth callback arrives (?code= or ?error=)
+  const isOAuthCallback = new URLSearchParams(window.location.search).has('code') ||
+    new URLSearchParams(window.location.search).has('error');
+
+  if (!user || isOAuthCallback) {
     return (
       <>
         <LoginScreen onLogin={handleLogin} />
@@ -312,11 +443,10 @@ export default function App() {
                     key={item.id}
                     onClick={() => setCurrentView(item.id)}
                     variant={currentView === item.id ? "default" : "ghost"}
-                    className={`w-full justify-start transition-all ${
-                      currentView === item.id
+                    className={`w-full justify-start transition-all ${currentView === item.id
                         ? "gradient-blue hover:opacity-90 neon-border"
                         : "hover:bg-blue-950/30 hover:border-blue-800/30 border border-transparent"
-                    }`}
+                      }`}
                   >
                     <item.icon className="w-4 h-4 mr-3" />
                     {item.label}
@@ -328,18 +458,24 @@ export default function App() {
               <div className="p-4 border-t border-blue-900/30">
                 <div className="glass-card p-3 rounded-lg mb-3 border border-blue-900/30">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-muted-foreground">Level 8</span>
+                    <span className="text-sm text-muted-foreground">Level {liveStats?.level ?? 1}</span>
                     <Trophy className="w-4 h-4 text-blue-400" />
                   </div>
                   <div className="w-full bg-blue-950/50 rounded-full h-2 border border-blue-900/30">
-                    <div className="gradient-blue h-2 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]" style={{ width: "65%" }} />
+                    {(() => {
+                      const xpInfo = liveStats ? xpForNextLevel(liveStats.totalXp) : { current: 0, needed: 100 };
+                      const pct = xpInfo.needed === 0 ? 100 : Math.min(100, (xpInfo.current / xpInfo.needed) * 100);
+                      return <div className="gradient-blue h-2 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]" style={{ width: `${pct}%` }} />;
+                    })()}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">2,450 / 4,000 XP</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {liveStats ? `${liveStats.totalXp.toLocaleString()} XP` : "0 XP"}
+                  </p>
                 </div>
-                
+
                 <div className="flex gap-2">
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     className="flex-1 hover:bg-white/5 justify-start gap-2 p-2"
                     onClick={() => setCurrentView("profile")}
                   >
@@ -352,15 +488,15 @@ export default function App() {
                     </div>
                     <span className="truncate">{user.name}</span>
                   </Button>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     className="px-3 hover:bg-white/5"
                     onClick={() => toast.info("Notifications coming soon!")}
                   >
                     <Bell className="w-4 h-4" />
                   </Button>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     className="px-3 hover:bg-white/5"
                     onClick={handleLogout}
                   >
@@ -405,11 +541,13 @@ export default function App() {
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-600/20 border border-orange-600/30">
                   <span className="text-orange-400 text-sm">🔥</span>
-                  <span className="text-sm">7 day streak</span>
+                  <span className="text-sm">
+                    {liveStats ? `${liveStats.currentStreak} day${liveStats.currentStreak !== 1 ? 's' : ''}` : '0 days'} streak
+                  </span>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600/20 border border-blue-500/30 shadow-[0_0_10px_rgba(59,130,246,0.1)]">
                   <Trophy className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm">2,450 XP</span>
+                  <span className="text-sm">{liveStats ? liveStats.totalXp.toLocaleString() : '0'} XP</span>
                 </div>
               </div>
             </div>
@@ -426,15 +564,15 @@ export default function App() {
                 transition={{ duration: 0.3 }}
                 className="h-full"
               >
-                {currentView === "dashboard" && <EnhancedDashboard userName={user?.name} isNewUser={user?.isNewUser} />}
-                {currentView === "chat" && <EnhancedChatInterface />}
-                {currentView === "quiz" && <EnhancedQuizMode />}
+                {currentView === "dashboard" && <EnhancedDashboard userName={user?.name} isNewUser={user?.isNewUser} userId={user?.id} />}
+                {currentView === "chat" && <EnhancedChatInterface userId={user?.id} />}
+                {currentView === "quiz" && <EnhancedQuizMode userId={user?.id} />}
                 {currentView === "planner" && <StudyPlanner />}
-                {currentView === "notes" && <NotesGenerator />}
-                {currentView === "mindmap" && <MindMapBuilder />}
-                {currentView === "leaderboard" && <Leaderboard />}
-                {currentView === "timer" && <StudyTimer />}
-                {currentView === "profile" && <ProfileSection userName={user?.name} userEmail={user?.email} userAvatar={userAvatar} onAvatarChange={setUserAvatar} />}
+                {currentView === "notes" && <NotesGenerator userId={user?.id} />}
+                {currentView === "mindmap" && <MindMapBuilder onNavigate={setCurrentView} userId={user?.id} />}
+                {currentView === "timer" && <StudyTimer userId={user?.id} />}
+                {currentView === "leaderboard" && <Leaderboard userId={user?.id} userName={user?.name} userAvatar={userAvatar} />}
+                {currentView === "profile" && <ProfileSection userName={user?.name} userEmail={user?.email} userAvatar={userAvatar} userId={user?.id} onProfileUpdate={handleProfileUpdate} />}
               </motion.div>
             </AnimatePresence>
           </main>

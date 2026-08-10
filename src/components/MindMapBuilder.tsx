@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -7,6 +7,9 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Sparkles, Plus, Trash2, Download, Share2, Maximize2, Minimize2, BookOpen, Brain, FileText } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
+import { mindmapAPI } from "../utils/api";
+import { toPng, toBlob } from "html-to-image";
+import { recordMindMapCreated } from "../utils/userStatsStore";
 
 interface SubTopic {
   id: string;
@@ -215,99 +218,116 @@ const sampleMindMaps: MindMap[] = [
   }
 ];
 
-export function MindMapBuilder() {
-  const [mindMaps, setMindMaps] = useState<MindMap[]>(sampleMindMaps);
-  const [selectedMap, setSelectedMap] = useState<MindMap | null>(mindMaps[0]);
+interface MindMapBuilderProps {
+  onNavigate?: (view: "landing" | "dashboard" | "chat" | "quiz" | "planner" | "notes" | "mindmap" | "leaderboard" | "timer" | "profile") => void;
+  userId?: string;
+}
+
+export function MindMapBuilder({ onNavigate, userId = "" }: MindMapBuilderProps) {
+  const [mindMaps, setMindMaps] = useState<MindMap[]>([]);
+  const [selectedMap, setSelectedMap] = useState<MindMap | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMindMaps = async () => {
+      try {
+        setIsLoading(true);
+        const data = await mindmapAPI.getAll();
+        setMindMaps(data as MindMap[]);
+        if (data.length > 0) {
+          setSelectedMap(data[0]);
+        }
+      } catch (error) {
+        console.error("Failed to fetch mind maps:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchMindMaps();
+  }, []);
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [selectedSubtopic, setSelectedSubtopic] = useState<SubTopic | null>(null);
   const [newMapTitle, setNewMapTitle] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const mapRef = useRef<HTMLDivElement>(null);
 
-  const createMindMap = () => {
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const createMindMap = async () => {
     if (!newMapTitle.trim()) {
       toast.error("Please enter a title");
       return;
     }
 
-    const newMap: MindMap = {
-      id: Date.now().toString(),
-      title: newMapTitle,
-      topics: [],
-      createdAt: new Date()
-    };
+    setIsGenerating(true);
+    toast.info("🤖 Generating topics and sub-topics for your mind map...");
 
-    setMindMaps([newMap, ...mindMaps]);
-    setSelectedMap(newMap);
-    setNewMapTitle("");
-    setShowCreateForm(false);
-    toast.success("Mind map created!");
-  };
-
-  const generateAIMindMap = () => {
-    toast.info("🤖 Generating AI mind map...");
-    setTimeout(() => {
-      const aiMap: MindMap = {
-        id: Date.now().toString(),
-        title: "Quantum Computing",
-        topics: [
-          {
-            id: "qubits",
-            label: "Qubits",
-            color: "#3B82F6",
-            summary: "Quantum bits (qubits) are the fundamental units of quantum information. Unlike classical bits, they can exist in superposition states, representing 0, 1, or both simultaneously.",
-            expanded: false,
-            subtopics: [
-              {
-                id: "superposition",
-                label: "Superposition",
-                summary: "Superposition allows qubits to exist in multiple states simultaneously until measured. This property enables quantum computers to process vast amounts of information in parallel."
-              },
-              {
-                id: "entanglement",
-                label: "Entanglement",
-                summary: "Quantum entanglement creates correlations between qubits that persist regardless of distance. Measuring one entangled qubit instantly affects its partner."
-              }
-            ]
-          },
-          {
-            id: "algorithms",
-            label: "Quantum Algorithms",
-            color: "#10B981",
-            summary: "Quantum algorithms leverage quantum mechanical phenomena to solve problems exponentially faster than classical algorithms for specific tasks.",
-            expanded: false,
-            subtopics: [
-              {
-                id: "shor",
-                label: "Shor's Algorithm",
-                summary: "Shor's algorithm can factor large numbers exponentially faster than classical algorithms, threatening current encryption methods."
-              },
-              {
-                id: "grover",
-                label: "Grover's Algorithm",
-                summary: "Grover's algorithm provides quadratic speedup for searching unsorted databases, offering significant performance improvements."
-              }
-            ]
-          }
-        ],
+    try {
+      const result = await mindmapAPI.generate(newMapTitle);
+      
+      const newMap: MindMap = {
+        id: result.id || Date.now().toString(),
+        title: result.title || newMapTitle,
+        topics: result.topics || [],
         createdAt: new Date()
       };
-      setMindMaps([aiMap, ...mindMaps]);
-      setSelectedMap(aiMap);
-      setSelectedTopic(null);
-      setSelectedSubtopic(null);
-      toast.success("AI mind map generated!");
-    }, 2000);
+
+      setMindMaps([newMap, ...mindMaps]);
+      setSelectedMap(newMap);
+      setNewMapTitle("");
+      setShowCreateForm(false);
+
+      // Record mind map creation in stats store
+      if (userId) {
+        recordMindMapCreated(userId, newMap.title);
+      }
+
+      toast.success("Mind map generated successfully!");
+    } catch (error: any) {
+      console.error("Error generating mind map:", error);
+      toast.error("Failed to generate mind map automatically.");
+      
+      // Fallback to empty map if API fails
+      const newMap: MindMap = {
+        id: Date.now().toString(),
+        title: newMapTitle,
+        topics: [],
+        createdAt: new Date()
+      };
+      setMindMaps([newMap, ...mindMaps]);
+      setSelectedMap(newMap);
+      setNewMapTitle("");
+      setShowCreateForm(false);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const deleteMindMap = (id: string) => {
-    setMindMaps(mindMaps.filter(m => m.id !== id));
-    if (selectedMap?.id === id) {
-      setSelectedMap(mindMaps[0] || null);
-      setSelectedTopic(null);
-      setSelectedSubtopic(null);
+  const generateAIMindMap = async () => {
+    if (!newMapTitle.trim()) {
+      toast.error("Please enter a title in the 'New Map' form first to generate an AI map!");
+      setShowCreateForm(true);
+      return;
     }
-    toast.success("Mind map deleted");
+    await createMindMap();
+  };
+
+  const deleteMindMap = async (id: string) => {
+    try {
+      await mindmapAPI.delete(id);
+      const newMindMaps = mindMaps.filter(m => m.id !== id);
+      setMindMaps(newMindMaps);
+      if (selectedMap?.id === id) {
+        setSelectedMap(newMindMaps[0] || null);
+        setSelectedTopic(null);
+        setSelectedSubtopic(null);
+      }
+      toast.success("Mind map deleted");
+    } catch (error) {
+      console.error("Failed to delete mind map:", error);
+      toast.error("Failed to delete mind map");
+    }
   };
 
   const toggleTopicExpansion = (topicId: string) => {
@@ -324,6 +344,13 @@ export function MindMapBuilder() {
     setSelectedMap(updatedMap);
     setMindMaps(mindMaps.map(m => m.id === selectedMap.id ? updatedMap : m));
     
+    // Attempt to save expansion state to backend silently
+    try {
+      mindmapAPI.update(updatedMap.id, { topics: updatedTopics });
+    } catch (e) {
+      // Ignore
+    }
+    
     setSelectedTopic({ ...topic, expanded: !topic.expanded });
     setSelectedSubtopic(null);
   };
@@ -337,8 +364,45 @@ export function MindMapBuilder() {
     setSelectedSubtopic(subtopic);
   };
 
-  const downloadMindMap = () => {
-    toast.success("Mind map downloaded as PNG!");
+  const downloadMindMap = async () => {
+    if (!mapRef.current || !selectedMap) return;
+    try {
+      const dataUrl = await toPng(mapRef.current, { backgroundColor: '#020817' });
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `${selectedMap.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_mindmap.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success("Mind map downloaded as PNG!");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to download mind map");
+    }
+  };
+
+  const shareMindMap = async () => {
+    if (!mapRef.current || !selectedMap) return;
+    try {
+      const blob = await toBlob(mapRef.current, { backgroundColor: '#020817' });
+      if (!blob) throw new Error("Failed to generate blob");
+      
+      const file = new File([blob], `${selectedMap.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`, { type: 'image/png' });
+      
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: selectedMap.title,
+          text: 'Check out my mind map!',
+          files: [file]
+        });
+        toast.success("Mind map shared!");
+      } else {
+        toast.error("Web Share API not supported on this browser/device for files.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to share mind map");
+    }
   };
 
   // Calculate positions for radial layout
@@ -406,10 +470,21 @@ export function MindMapBuilder() {
                 }}
               />
               <div className="flex gap-2">
-                <Button onClick={createMindMap} className="flex-1 gradient-blue hover:opacity-90 neon-border">
-                  Create
+                <Button 
+                  onClick={createMindMap} 
+                  disabled={isGenerating}
+                  className="flex-1 gradient-blue hover:opacity-90 neon-border"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    "Create & Generate"
+                  )}
                 </Button>
-                <Button variant="outline" onClick={() => setShowCreateForm(false)}>
+                <Button variant="outline" onClick={() => setShowCreateForm(false)} disabled={isGenerating}>
                   Cancel
                 </Button>
               </div>
@@ -455,7 +530,7 @@ export function MindMapBuilder() {
                       <Badge variant="outline" className="text-xs">
                         {map.topics.length} topics
                       </Badge>
-                      <span>{map.createdAt.toLocaleDateString()}</span>
+                      <span>{new Date(map.createdAt).toLocaleDateString()}</span>
                     </div>
                   </Card>
                 </motion.div>
@@ -489,6 +564,7 @@ export function MindMapBuilder() {
                   size="sm"
                   variant="outline"
                   className="hover:bg-white/10"
+                  onClick={shareMindMap}
                 >
                   <Share2 className="w-4 h-4 mr-2" />
                   Share
@@ -507,7 +583,7 @@ export function MindMapBuilder() {
             <div className="flex-1 flex gap-6 overflow-hidden">
               {/* Virtual Mind Map Canvas */}
               <div className={`${fullscreen || !selectedTopic ? 'flex-1' : 'w-1/2'} transition-all duration-300`}>
-                <div className="h-full bg-gradient-to-br from-blue-950/20 via-background to-blue-950/10 rounded-lg border border-blue-600/20 overflow-hidden relative">
+                <div ref={mapRef} className="h-full bg-gradient-to-br from-blue-950/20 via-background to-blue-950/10 rounded-lg border border-blue-600/20 overflow-hidden relative">
                   {selectedMap.topics.length === 0 ? (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <div className="text-center">
@@ -835,7 +911,10 @@ export function MindMapBuilder() {
                                   size="sm" 
                                   variant="outline"
                                   className="flex-1"
-                                  onClick={() => toast.info("Quiz generation coming soon!")}
+                                  onClick={() => {
+                                    sessionStorage.setItem('pendingQuizTopic', selectedSubtopic.label);
+                                    if (onNavigate) onNavigate("quiz");
+                                  }}
                                 >
                                   <Brain className="w-4 h-4 mr-2" />
                                   Generate Quiz
@@ -843,7 +922,10 @@ export function MindMapBuilder() {
                                 <Button 
                                   size="sm" 
                                   variant="outline"
-                                  onClick={() => toast.info("Notes feature coming soon!")}
+                                  onClick={() => {
+                                    sessionStorage.setItem('pendingNotesTopic', selectedSubtopic.label);
+                                    if (onNavigate) onNavigate("notes");
+                                  }}
                                 >
                                   <FileText className="w-4 h-4 mr-2" />
                                   Notes

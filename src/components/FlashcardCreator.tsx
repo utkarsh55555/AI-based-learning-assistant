@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocalStorage } from "../utils/useLocalStorage";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -19,7 +20,7 @@ interface Flashcard {
 }
 
 export function FlashcardCreator() {
-  const [flashcards, setFlashcards] = useState<Flashcard[]>([
+  const [flashcards, setFlashcards] = useLocalStorage<Flashcard[]>("flashcards", [
     {
       id: "1",
       front: "What is the derivative of x²?",

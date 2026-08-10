@@ -8,7 +8,7 @@ interface Achievement {
   id: string;
   title: string;
   description: string;
-  icon: React.ReactNode;
+  icon: React.ReactNode; 
   unlocked: boolean;
   progress: number;
   maxProgress: number;

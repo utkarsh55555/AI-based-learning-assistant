@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocalStorage } from "../utils/useLocalStorage";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Badge } from "./ui/badge";
@@ -11,6 +12,7 @@ import { FileText, Plus, Download, Sparkles, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { notesAPI } from "../utils/api";
+import { recordNoteCreated } from "../utils/userStatsStore";
 
 interface Note {
   id: number;
@@ -22,39 +24,8 @@ interface Note {
   createdAt: string;
 }
 
-const mockNotes: Note[] = [
-  {
-    id: 1,
-    title: "Quantum Mechanics Basics",
-    subject: "Physics",
-    content: "Wave-particle duality is a fundamental concept in quantum mechanics. It states that particles like electrons and photons exhibit both wave-like and particle-like properties...",
-    summary: "Introduction to wave-particle duality and its implications in quantum mechanics.",
-    keyPoints: [
-      "Matter exhibits wave-particle duality",
-      "Heisenberg uncertainty principle",
-      "Quantum superposition",
-      "Wave function collapse upon measurement"
-    ],
-    createdAt: "2024-01-15"
-  },
-  {
-    id: 2,
-    title: "Calculus - Integration Techniques",
-    subject: "Mathematics",
-    content: "Integration by parts is a powerful technique derived from the product rule for differentiation. The formula is ∫u dv = uv - ∫v du...",
-    summary: "Overview of integration by parts and substitution methods.",
-    keyPoints: [
-      "Integration by parts formula",
-      "U-substitution method",
-      "Trigonometric integration",
-      "Partial fractions decomposition"
-    ],
-    createdAt: "2024-01-14"
-  }
-];
-
-export function NotesGenerator() {
-  const [notes, setNotes] = useState<Note[]>([]);
+export function NotesGenerator({ userId = "" }: { userId?: string }) {
+  const [notes, setNotes] = useLocalStorage<Note[]>("generatedNotes", []);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [newNoteTopic, setNewNoteTopic] = useState("");
@@ -64,24 +35,38 @@ export function NotesGenerator() {
   // Load notes on mount
   useEffect(() => {
     loadNotes();
+    
+    // Check for auto-generation redirect from Mind Maps
+    const pendingTopic = sessionStorage.getItem('pendingNotesTopic');
+    if (pendingTopic) {
+      setNewNoteTopic(pendingTopic);
+      sessionStorage.removeItem('pendingNotesTopic');
+      setTimeout(() => generateNotes(pendingTopic), 100);
+    }
   }, []);
 
   const loadNotes = async () => {
     try {
       setLoading(true);
       const fetchedNotes = await notesAPI.getAll();
-      const formattedNotes: Note[] = fetchedNotes.map((note: any, index: number) => ({
-        id: index + 1,
-        title: note.title,
-        subject: note.subject || "General",
-        content: note.content,
-        summary: note.content.substring(0, 150) + "...",
-        keyPoints: note.tags || [],
-        createdAt: note.created_at?.split('T')[0] || new Date().toISOString().split('T')[0]
-      }));
-      setNotes(formattedNotes);
+      const formattedNotes: Note[] = fetchedNotes.map((note: any, index: number) => {
+        const content = typeof note.content === 'string' ? note.content : (note.content ? String(note.content) : '');
+        return {
+          id: index + 1,
+          title: typeof note.title === 'string' ? note.title : String(note.title || 'Untitled'),
+          subject: note.subject || "General",
+          content: content,
+          summary: content.length > 0 ? content.substring(0, 150) + "..." : (note.summary || ''),
+          keyPoints: Array.isArray(note.tags) ? note.tags : (Array.isArray(note.keyPoints) ? note.keyPoints : []),
+          createdAt: note.created_at?.split('T')[0] || new Date().toISOString().split('T')[0]
+        };
+      });
+      // Only overwrite if we actually fetched notes, to prevent empty backend from wiping local storage
       if (formattedNotes.length > 0) {
+        setNotes(formattedNotes);
         setSelectedNote(formattedNotes[0]);
+      } else if (notes.length > 0 && !selectedNote) {
+        setSelectedNote(notes[0]);
       }
     } catch (error: any) {
       console.error("Error loading notes:", error);
@@ -92,8 +77,9 @@ export function NotesGenerator() {
     }
   };
 
-  const generateNotes = async () => {
-    if (!newNoteTopic.trim()) {
+  const generateNotes = async (overrideTopic?: string | any) => {
+    const topicToUse = typeof overrideTopic === 'string' ? overrideTopic : newNoteTopic;
+    if (!topicToUse.trim()) {
       toast.error("Please enter a topic");
       return;
     }
@@ -102,22 +88,30 @@ export function NotesGenerator() {
     toast.info("🤖 AI is generating your notes...");
 
     try {
-      const result = await notesAPI.generate(newNoteTopic, newNoteSubject, "intermediate");
-      const aiData = result.ai_data;
+      const result = await notesAPI.generate(topicToUse, newNoteSubject, "intermediate");
+      const aiData = result.ai_data || {};
+      const content = typeof aiData.content === 'string' ? aiData.content : String(aiData.content || '');
+      const summary = typeof aiData.summary === 'string' ? aiData.summary : (content.substring(0, 150) || '');
       
       const newNote: Note = {
         id: notes.length + 1,
-        title: aiData.title || newNoteTopic,
+        title: typeof aiData.title === 'string' ? aiData.title : (topicToUse || 'New Note'),
         subject: newNoteSubject,
-        content: aiData.content,
-        summary: aiData.summary,
-        keyPoints: aiData.keyPoints || [],
+        content: content,
+        summary: summary,
+        keyPoints: Array.isArray(aiData.keyPoints) ? aiData.keyPoints.map((p: any) => String(p)) : [],
         createdAt: new Date().toISOString().split('T')[0]
       };
 
       setNotes([newNote, ...notes]);
       setSelectedNote(newNote);
       setNewNoteTopic("");
+
+      // Record note creation in stats store
+      if (userId) {
+        recordNoteCreated(userId, newNote.title);
+      }
+
       toast.success("✨ Notes generated successfully!");
     } catch (error: any) {
       console.error("Error generating notes:", error);
@@ -131,6 +125,13 @@ export function NotesGenerator() {
     const noteToDelete = notes.find(n => n.id === id);
     if (!noteToDelete) return;
 
+    // Optimistically remove from local state
+    const updatedNotes = notes.filter(n => n.id !== id);
+    setNotes(updatedNotes);
+    if (selectedNote?.id === id) {
+      setSelectedNote(updatedNotes[0] || null);
+    }
+    
     try {
       // Find the actual note ID from the database
       const allNotes = await notesAPI.getAll();
@@ -139,21 +140,38 @@ export function NotesGenerator() {
       if (dbNote) {
         await notesAPI.delete(dbNote.id);
       }
-      
-      const updatedNotes = notes.filter(n => n.id !== id);
-      setNotes(updatedNotes);
-      if (selectedNote?.id === id) {
-        setSelectedNote(updatedNotes[0] || null);
-      }
       toast.success("Note deleted successfully");
     } catch (error: any) {
-      console.error("Error deleting note:", error);
-      toast.error("Failed to delete note");
+      console.error("Error deleting note from backend:", error);
+      // Note is still deleted locally which is what the user wants
     }
   };
 
   const downloadNote = (note: Note) => {
-    toast.success(`📥 Downloading "${note.title}"...`);
+    const textContent = `Title: ${note.title}
+Subject: ${note.subject}
+Date: ${note.createdAt}
+
+=== SUMMARY ===
+${note.summary}
+
+=== KEY POINTS ===
+${note.keyPoints.map(point => `- ${point}`).join('\n')}
+
+=== DETAILED NOTES ===
+${note.content}
+`;
+    const blob = new Blob([textContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${note.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_notes.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    toast.success(`📥 Downloaded "${note.title}" successfully!`);
   };
 
   return (
