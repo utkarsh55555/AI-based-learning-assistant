@@ -95,51 +95,12 @@ async function apiRequest<T>(
         secClearSession();
       }
       
-      // Only fall back to mock API for true DNS/infrastructure failures, NOT for
-      // AI service errors (timeouts, rate limits, etc.) which should show as errors.
-      // Auth endpoints are excluded — they must always fail visibly.
-      if (response.status === 500 && !isAuthEndpoint) {
-        const msg = (error.message || '').toLowerCase();
-        const isTrueInfraFailure =
-          msg.includes('getaddrinfo') ||
-          msg.includes('name or service not known') ||
-          (msg.includes('supabase') && msg.includes('connection'));
-        
-        if (isTrueInfraFailure) {
-          console.warn(`Backend infrastructure unreachable: ${error.message}. Switching to client-side Mock API.`);
-          useMockApi = true;
-          showMockWarning();
-          return handleMockRequest<T>(endpoint, options);
-        }
-      }
-      
       throw new Error(error.error || error.message || `HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
     return data.data || data;
   } catch (error: any) {
-    // Only handle true network failures (server completely unreachable)
-    // NOT application-level errors that happen to contain 'failed' in the message
-    const isNetworkError = error.name === 'TypeError' && (
-      error.message.toLowerCase().includes('fetch') || 
-      error.message.toLowerCase().includes('networkerror') ||
-      error.message === 'Failed to fetch'
-    );
-    
-    if (isNetworkError) {
-      // Auth endpoints must NEVER silently fall back to mock mode —
-      // that would allow fake accounts to be created.
-      if (isAuthEndpoint) {
-        throw new Error(
-          'Cannot reach the authentication server. Please use "Continue with Google" to sign in, or ensure the backend is running.'
-        );
-      }
-      console.warn(`Connection failed to backend at ${API_BASE_URL}. Switching to client-side Mock API.`);
-      useMockApi = true;
-      showMockWarning();
-      return handleMockRequest<T>(endpoint, options);
-    }
     throw error;
   }
 }

@@ -147,7 +147,10 @@ def get_ai():
     global _ai
     if _ai is None:
         from openai import OpenAI
-        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        # Using the key provided by the user for immediate functionality
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is missing")
         if not api_key: raise RuntimeError("OPENROUTER_API_KEY is not configured.")
         _ai = OpenAI(api_key=api_key,
                      base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
@@ -628,7 +631,7 @@ def tutor_chat(user):
         }), 200
     except Exception as e:
         logger.error("Tutor chat error: %s", e)
-        return jsonify({"error": "AI service error. Please try again."}), 500
+        return jsonify({"error": f"AI service error: {str(e)}"}), 500
 
 @app.route("/api/tutor/explain", methods=["POST"])
 @require_auth
@@ -643,7 +646,7 @@ def tutor_explain(user):
         return jsonify({"explanation": reply}), 200
     except Exception as e:
         logger.error("Explain error: %s", e)
-        return jsonify({"error": "AI service error. Please try again."}), 500
+        return jsonify({"error": f"AI service error: {str(e)}"}), 500
 
 @app.route("/api/tutor/upload", methods=["POST"])
 @require_auth
@@ -720,7 +723,7 @@ def quiz_generate(user):
                         "difficulty": difficulty, "questions": questions}), 200
     except Exception as e:
         logger.error("Quiz generate error: %s", e)
-        return jsonify({"error": "Quiz generation failed. Please try again."}), 500
+        return jsonify({"error": f"Quiz generation failed: {str(e)}"}), 500
 
 @app.route("/api/quiz/<quiz_id>/submit", methods=["POST"])
 @require_auth
@@ -759,7 +762,7 @@ def quiz_submit(user, quiz_id):
         }), 200
     except Exception as e:
         logger.error("Quiz submit error: %s", e)
-        return jsonify({"error": "Failed to submit quiz."}), 500
+        return jsonify({"error": f"Failed to submit quiz: {str(e)}"}), 500
 
 @app.route("/api/quiz/history")
 @require_auth

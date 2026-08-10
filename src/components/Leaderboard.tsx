@@ -6,7 +6,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Trophy, Medal, TrendingUp, Star, Zap, Target } from "lucide-react";
 import { motion } from "motion/react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
-import { getUserStats, onStatsUpdated, type UserStats } from "../utils/userStatsStore";
 
 interface LeaderboardEntry {
   id: string;
@@ -20,7 +19,7 @@ interface LeaderboardEntry {
   weeklyXP: number;
 }
 
-import { leaderboardAPI } from "../utils/api";
+import { leaderboardAPI, userAPI } from "../utils/api";
 import { computeLevel } from "../utils/userStatsStore";
 
 interface LeaderboardProps {
@@ -31,18 +30,22 @@ interface LeaderboardProps {
 
 export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: LeaderboardProps) {
   const [timeframe, setTimeframe] = useState<"all" | "weekly" | "monthly">("all");
-  const [stats, setStats] = useState<UserStats | null>(null);
+  const [userRankData, setUserRankData] = useState<any>(null);
   const [globalUsers, setGlobalUsers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch local live stats
+  // Fetch current user rank and stats
   useEffect(() => {
+    const fetchUserRank = async () => {
+      try {
+        const data = await leaderboardAPI.getUserRank();
+        setUserRankData(data);
+      } catch (error) {
+        console.error("Failed to fetch user rank:", error);
+      }
+    };
     if (userId) {
-      setStats(getUserStats(userId));
-      const unsub = onStatsUpdated(() => {
-        setStats(getUserStats(userId));
-      });
-      return unsub;
+      fetchUserRank();
     }
   }, [userId]);
 
@@ -83,12 +86,12 @@ export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: 
     let streak = 0;
     let achievements = 0;
 
-    if (stats) {
-      totalXP = stats.totalXp || 0;
-      level = stats.level || 1;
-      streak = stats.currentStreak || 0;
-      achievements = (stats.achievements || []).filter(a => a.unlockedAt).length;
-      weeklyXP = (stats.weeklyActivity || []).reduce((sum, day) => sum + (day.xp || 0), 0);
+    if (userRankData && userRankData.user) {
+      totalXP = userRankData.user.total_xp || 0;
+      level = computeLevel(totalXP);
+      streak = userRankData.user.current_streak || 0;
+      achievements = 0; 
+      weeklyXP = 0; 
     }
 
     // Remove the current user if they are in the fetched global list (to replace with live stats)
@@ -119,7 +122,7 @@ export function Leaderboard({ userId = "", userName = "You", userAvatar = "" }: 
     });
 
     return filteredData;
-  }, [stats, timeframe, userId, userName, userAvatar, globalUsers]);
+  }, [userRankData, timeframe, userId, userName, userAvatar, globalUsers]);
 
   const currentUserEntry = leaderboardData.find(e => e.id === (userId || "current-user")) || leaderboardData[0];
 

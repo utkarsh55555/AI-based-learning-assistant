@@ -10,7 +10,7 @@ import { Play, Pause, RotateCcw, Clock, Coffee, Target, Volume2, VolumeX, Settin
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
-import { recordStudySession } from "../utils/userStatsStore";
+import { studyAPI } from "../utils/api";
 
 type TimerMode = "focus" | "short-break" | "long-break" | "mid-break";
 
@@ -247,7 +247,10 @@ export function StudyTimer({ userId = "" }: { userId?: string }) {
       // Record real study session
       if (userId) {
         const focusMinutes = Math.round(totalTime / 60);
-        recordStudySession(userId, focusMinutes, "Focus Session");
+        studyAPI.createSession(focusMinutes, "Focus Session").catch((err) => {
+          console.error("Failed to record study session:", err);
+          toast.error("Failed to sync session with backend");
+        });
       }
 
       toast.success("🎉 Focus session complete! Great work!", {

@@ -1,5 +1,4 @@
-import { useState, useRef } from "react";
-import { useLocalStorage } from "../utils/useLocalStorage";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -225,8 +224,27 @@ interface MindMapBuilderProps {
 }
 
 export function MindMapBuilder({ onNavigate, userId = "" }: MindMapBuilderProps) {
-  const [mindMaps, setMindMaps] = useLocalStorage<MindMap[]>("mindMaps", []);
-  const [selectedMap, setSelectedMap] = useState<MindMap | null>(mindMaps[0] || null);
+  const [mindMaps, setMindMaps] = useState<MindMap[]>([]);
+  const [selectedMap, setSelectedMap] = useState<MindMap | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMindMaps = async () => {
+      try {
+        setIsLoading(true);
+        const data = await mindmapAPI.getAll();
+        setMindMaps(data as MindMap[]);
+        if (data.length > 0) {
+          setSelectedMap(data[0]);
+        }
+      } catch (error) {
+        console.error("Failed to fetch mind maps:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchMindMaps();
+  }, []);
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [selectedSubtopic, setSelectedSubtopic] = useState<SubTopic | null>(null);
   const [newMapTitle, setNewMapTitle] = useState("");
@@ -295,14 +313,21 @@ export function MindMapBuilder({ onNavigate, userId = "" }: MindMapBuilderProps)
     await createMindMap();
   };
 
-  const deleteMindMap = (id: string) => {
-    setMindMaps(mindMaps.filter(m => m.id !== id));
-    if (selectedMap?.id === id) {
-      setSelectedMap(mindMaps[0] || null);
-      setSelectedTopic(null);
-      setSelectedSubtopic(null);
+  const deleteMindMap = async (id: string) => {
+    try {
+      await mindmapAPI.delete(id);
+      const newMindMaps = mindMaps.filter(m => m.id !== id);
+      setMindMaps(newMindMaps);
+      if (selectedMap?.id === id) {
+        setSelectedMap(newMindMaps[0] || null);
+        setSelectedTopic(null);
+        setSelectedSubtopic(null);
+      }
+      toast.success("Mind map deleted");
+    } catch (error) {
+      console.error("Failed to delete mind map:", error);
+      toast.error("Failed to delete mind map");
     }
-    toast.success("Mind map deleted");
   };
 
   const toggleTopicExpansion = (topicId: string) => {
@@ -318,6 +343,13 @@ export function MindMapBuilder({ onNavigate, userId = "" }: MindMapBuilderProps)
     const updatedMap = { ...selectedMap, topics: updatedTopics };
     setSelectedMap(updatedMap);
     setMindMaps(mindMaps.map(m => m.id === selectedMap.id ? updatedMap : m));
+    
+    // Attempt to save expansion state to backend silently
+    try {
+      mindmapAPI.update(updatedMap.id, { topics: updatedTopics });
+    } catch (e) {
+      // Ignore
+    }
     
     setSelectedTopic({ ...topic, expanded: !topic.expanded });
     setSelectedSubtopic(null);

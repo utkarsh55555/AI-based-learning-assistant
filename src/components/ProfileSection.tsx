@@ -14,16 +14,8 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner@2.0.3";
-import {
-  getUserStats,
-  onStatsUpdated,
-  xpForNextLevel,
-  getAccuracy,
-  getTotalMessages,
-  getWeeklyChartData,
-  type UserStats,
-  type ActivityItem,
-} from "../utils/userStatsStore";
+import { userAPI } from "../utils/api";
+import { type ActivityItem } from "../utils/userStatsStore";
 
 interface ProfileSectionProps {
   userName?: string;
@@ -112,41 +104,84 @@ export function ProfileSection({
   const [selectedAvatar, setSelectedAvatar] = useState(userAvatar || presetAvatars[0].url);
   const [editedName, setEditedName] = useState(userName);
   const [editedEmail, setEditedEmail] = useState(userEmail);
-  const [stats, setStats] = useState<UserStats | null>(null);
+  const [stats, setStats] = useState<any>(null);
   const [weeklyData, setWeeklyData] = useState<{ day: string; xp: number; minutes: number }[]>([]);
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
     if (!userId) return;
-    setStats(getUserStats(userId));
-    setWeeklyData(getWeeklyChartData(userId));
-  }, [userId]);
+    try {
+      const profileData = await userAPI.getProfile();
+      const dashboardData = await userAPI.getDashboard();
+      
+      if (profileData && profileData.profile) {
+        setEditedName(profileData.profile.name || userName);
+        setEditedEmail(profileData.profile.email || userEmail);
+        setSelectedAvatar(profileData.profile.avatar_url || userAvatar || presetAvatars[0].url);
+      }
+      
+      if (dashboardData) {
+        setStats(dashboardData);
+        // Mock weekly data for now as API doesn't provide it yet
+        setWeeklyData([
+          { day: "Mon", xp: 50, minutes: 30 },
+          { day: "Tue", xp: 120, minutes: 60 },
+          { day: "Wed", xp: 0, minutes: 0 },
+          { day: "Thu", xp: 200, minutes: 90 },
+          { day: "Fri", xp: 150, minutes: 75 },
+          { day: "Sat", xp: 300, minutes: 120 },
+          { day: "Sun", xp: 0, minutes: 0 },
+        ]);
+      }
+    } catch (error) {
+      console.error("Failed to load profile data:", error);
+    }
+  }, [userId, userName, userEmail, userAvatar]);
 
   useEffect(() => {
     loadData();
-    const unsub = onStatsUpdated(loadData);
-    return unsub;
   }, [loadData]);
 
-  // Keep local avatar/name in sync if parent updates
-  useEffect(() => { setSelectedAvatar(userAvatar || presetAvatars[0].url); }, [userAvatar]);
-  useEffect(() => { setEditedName(userName); }, [userName]);
-  useEffect(() => { setEditedEmail(userEmail); }, [userEmail]);
+  // Keep local avatar/name in sync if parent updates initially
+  useEffect(() => { 
+    if (userAvatar) setSelectedAvatar(userAvatar); 
+  }, [userAvatar]);
+  useEffect(() => { 
+    if (userName) setEditedName(userName); 
+  }, [userName]);
+  useEffect(() => { 
+    if (userEmail) setEditedEmail(userEmail); 
+  }, [userEmail]);
 
-  const handleSaveProfile = () => {
-    if (onProfileUpdate) {
-      onProfileUpdate({ name: editedName, email: editedEmail, avatar: selectedAvatar });
+  const handleSaveProfile = async () => {
+    try {
+      await userAPI.updateProfile({
+        name: editedName,
+        email: editedEmail,
+        avatar_url: selectedAvatar,
+      });
+      if (onProfileUpdate) {
+        onProfileUpdate({ name: editedName, email: editedEmail, avatar: selectedAvatar });
+      }
+      toast.success("Profile updated successfully! 🎉");
+      setIsEditingProfile(false);
+    } catch (error) {
+      console.error("Failed to update profile:", error);
+      toast.error("Failed to update profile");
     }
-    toast.success("Profile updated successfully! 🎉");
-    setIsEditingProfile(false);
   };
 
-  const handleSelectAvatar = (avatarUrl: string) => {
-    setSelectedAvatar(avatarUrl);
-    if (onProfileUpdate) {
-      onProfileUpdate({ name: editedName, email: editedEmail, avatar: avatarUrl });
+  const handleSelectAvatar = async (avatarUrl: string) => {
+    try {
+      await userAPI.updateProfile({ avatar_url: avatarUrl });
+      setSelectedAvatar(avatarUrl);
+      if (onProfileUpdate) {
+        onProfileUpdate({ name: editedName, email: editedEmail, avatar: avatarUrl });
+      }
+      setIsSelectingAvatar(false);
+      toast.success("Avatar updated! 🎨");
+    } catch (error) {
+      toast.error("Failed to update avatar");
     }
-    setIsSelectingAvatar(false);
-    toast.success("Avatar updated! 🎨");
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -167,11 +202,21 @@ export function ProfileSection({
     }
   };
 
-  const accuracy = userId ? getAccuracy(userId) : 0;
-  const totalMsgs = userId ? getTotalMessages(userId) : 0;
-  const xpInfo = stats ? xpForNextLevel(stats.totalXp) : null;
-  const unlockedCount = stats ? stats.achievements.filter(a => a.unlockedAt).length : 0;
-  const studyHours = stats ? (stats.totalStudyMinutes / 60).toFixed(1) : "0";
+  const accuracy = stats?.stats?.average_score || 0;
+  const totalMsgs = 0; // Not provided by dashboard API yet
+  
+  // Calculate XP for next level using dashboard API data
+  const currentXP = stats?.xp || 0;
+  const currentLevelXP = Math.floor(currentXP / 1000) * 1000;
+  const nextLevelXP = currentLevelXP + 1000;
+  
+  const xpInfo = stats ? {
+    current: currentXP,
+    needed: nextLevelXP
+  } : null;
+  
+  const unlockedCount = 0; // Achievements not in dashboard API yet
+  const studyHours = stats ? (stats.stats?.focus_minutes / 60).toFixed(1) : "0";
 
   return (
     <div className="h-full overflow-auto space-y-6">
@@ -242,7 +287,7 @@ export function ProfileSection({
                   {stats && (
                     <Badge className="bg-green-600/20 border-green-600/50 text-green-400">
                       <Calendar className="w-3 h-3 mr-1" />
-                      Joined {new Date(stats.joinedAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                      Joined Recently
                     </Badge>
                   )}
                 </div>
@@ -265,7 +310,7 @@ export function ProfileSection({
           <div className="grid grid-cols-2 gap-4">
             <Card className="glass-card p-4 text-center">
               <Zap className="w-6 h-6 text-blue-400 mx-auto mb-2" />
-              <p className="text-2xl mb-1">{stats?.totalXp.toLocaleString() ?? 0}</p>
+              <p className="text-2xl mb-1">{stats?.xp?.toLocaleString() ?? 0}</p>
               <p className="text-xs text-muted-foreground">Total XP</p>
             </Card>
             <Card className="glass-card p-4 text-center">
@@ -366,9 +411,9 @@ export function ProfileSection({
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground flex items-center gap-2">
-                    <Target className="w-4 h-4" /> Questions Answered
+                    <Target className="w-4 h-4" /> Quizzes Taken
                   </span>
-                  <span>{stats?.totalQuestions ?? 0}</span>
+                  <span>{stats?.stats?.quizzes_taken ?? 0}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground flex items-center gap-2">
@@ -388,7 +433,7 @@ export function ProfileSection({
                   <span className="text-muted-foreground flex items-center gap-2">
                     <Map className="w-4 h-4" /> Mind Maps
                   </span>
-                  <span>{stats?.mindMapsCreated ?? 0}</span>
+                  <span>0</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground flex items-center gap-2">
@@ -400,13 +445,13 @@ export function ProfileSection({
                   <span className="text-muted-foreground flex items-center gap-2">
                     🔥 Current Streak
                   </span>
-                  <span className="text-orange-400">{stats?.currentStreak ?? 0} days</span>
+                  <span className="text-orange-400">{stats?.streak ?? 0} days</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground flex items-center gap-2">
                     ⚡ Best Streak
                   </span>
-                  <span>{stats?.longestStreak ?? 0} days</span>
+                  <span>{stats?.streak ?? 0} days</span>
                 </div>
               </div>
             </Card>
@@ -447,7 +492,7 @@ export function ProfileSection({
                 <Star className="w-5 h-5 text-blue-400" />
                 Recent Activity
               </h3>
-              {!stats || stats.recentActivity.length === 0 ? (
+              {!stats || !stats.recent_activities || stats.recent_activities.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Star className="w-10 h-10 mx-auto mb-2 opacity-30" />
                   <p className="text-sm">No activity recorded yet</p>
@@ -455,7 +500,7 @@ export function ProfileSection({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {stats.recentActivity.slice(0, 10).map((activity, index) => (
+                  {stats.recent_activities.slice(0, 10).map((activity: any, index: number) => (
                     <motion.div
                       key={activity.id}
                       initial={{ opacity: 0, x: -20 }}
@@ -465,20 +510,14 @@ export function ProfileSection({
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-blue-950/50 border border-blue-900/30 flex items-center justify-center flex-shrink-0">
-                          {activityIcon(activity.type)}
+                          <Star className="w-4 h-4 text-blue-400" />
                         </div>
                         <div>
-                          <p className="text-sm">{activity.title}</p>
-                          <p className="text-xs text-muted-foreground">{activity.subtitle}</p>
+                          <p className="text-sm">{activity.description}</p>
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        {activity.xpEarned > 0 && (
-                          <Badge className="bg-blue-600/20 border-blue-600/50 text-blue-400 mb-1 block">
-                            +{activity.xpEarned} XP
-                          </Badge>
-                        )}
-                        <p className="text-xs text-muted-foreground">{timeAgo(activity.timestamp)}</p>
+                        <p className="text-xs text-muted-foreground">{timeAgo(activity.date)}</p>
                       </div>
                     </motion.div>
                   ))}
@@ -497,50 +536,17 @@ export function ProfileSection({
                 All Achievements
               </h3>
               <Badge className="bg-yellow-600/20 border-yellow-600/50 text-yellow-400">
-                {unlockedCount} / {stats?.achievements.length ?? 0} Unlocked
+                {unlockedCount} / {0} Unlocked
               </Badge>
             </div>
             {/* Overall progress bar */}
             <Progress
-              value={stats?.achievements.length ? (unlockedCount / stats.achievements.length) * 100 : 0}
+              value={0}
               className="h-2"
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {(stats?.achievements ?? []).map((achievement, index) => (
-              <motion.div
-                key={achievement.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.04 }}
-              >
-                <Card
-                  className={`glass-card p-6 text-center transition-all ${
-                    achievement.unlockedAt
-                      ? "ring-2 ring-yellow-600/50 hover:ring-yellow-500/70"
-                      : "opacity-50 grayscale hover:opacity-60"
-                  }`}
-                >
-                  <div className="text-4xl mb-3">{achievement.icon}</div>
-                  <h4 className="mb-2">{achievement.name}</h4>
-                  <p className="text-sm text-muted-foreground mb-3">{achievement.description}</p>
-                  {achievement.unlockedAt ? (
-                    <Badge className="bg-yellow-600/20 border-yellow-600/50 text-yellow-400">
-                      ✓ Unlocked
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-muted-foreground border-white/10">
-                      Locked
-                    </Badge>
-                  )}
-                  {achievement.unlockedAt && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      {new Date(achievement.unlockedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </p>
-                  )}
-                </Card>
-              </motion.div>
-            ))}
+            {/* Achievements not available from dashboard API yet */}
           </div>
         </TabsContent>
 
