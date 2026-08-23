@@ -47,6 +47,17 @@ for _p in _env_paths:
 
 # OPENROUTER_API_KEY must be set in environment variables or .env — no hardcoded fallback
 
+def get_env(primary: str, *aliases: str, default: str = "") -> str:
+    """Retrieve an environment variable supporting common prefixes (e.g. VITE_) and aliases."""
+    all_keys = [primary, f"VITE_{primary}"] + list(aliases)
+    for a in aliases:
+        all_keys.append(f"VITE_{a}")
+    for k in all_keys:
+        val = os.environ.get(k)
+        if val and val.strip() and not val.strip().startswith("your_"):
+            return val.strip()
+    return default
+
 from datetime import datetime
 from functools import wraps
 from flask import Flask, request, jsonify, make_response
@@ -146,7 +157,7 @@ def get_db():
     global _mongo_client, _mongo_db, _mongo_error
     if _mongo_db is not None:
         return _mongo_db
-    uri = os.environ.get("MONGO_URI", "")
+    uri = get_env("MONGO_URI", "MONGODB_URI")
     if not uri:
         _mongo_error = "MONGO_URI environment variable is not set. Add it in Vercel Dashboard → Settings → Environment Variables."
         raise RuntimeError(_mongo_error)
@@ -371,11 +382,11 @@ def ai_complete(prompt_or_messages, max_tokens: int = 2048) -> str:
         prompt_text = str(prompt_or_messages)
 
     # 1. OpenRouter API
-    or_key = os.environ.get("OPENROUTER_API_KEY", "")
+    or_key = get_env("OPENROUTER_API_KEY")
     if or_key and not or_key.startswith("your_"):
         try:
-            or_url = (os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")).rstrip("/") + "/chat/completions"
-            or_model = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+            or_url = (get_env("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1")).rstrip("/") + "/chat/completions"
+            or_model = get_env("OPENROUTER_MODEL", default="openai/gpt-4o-mini")
             or_headers = {
                 "Authorization": f"Bearer {or_key}",
                 "Content-Type": "application/json",
@@ -401,12 +412,12 @@ def ai_complete(prompt_or_messages, max_tokens: int = 2048) -> str:
             logger.error("OpenRouter request exception: %s", e)
 
     # 2. Direct Gemini API
-    gemini_key = os.environ.get("GEMINI_API_KEY")
+    gemini_key = get_env("GEMINI_API_KEY")
     if gemini_key and gemini_key != "your_gemini_api_key_here":
-        model_name = (os.environ.get("GEMINI_MODEL") or "models/gemini-1.5-flash").replace("models/", "")
+        model_name = (get_env("GEMINI_MODEL", default="models/gemini-1.5-flash")).replace("models/", "")
         # Try OpenAI-compatible endpoint
         try:
-            url = f"{(os.environ.get('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta')).rstrip('/')}/openai/chat/completions"
+            url = f"{(get_env('GEMINI_BASE_URL', default='https://generativelanguage.googleapis.com/v1beta')).rstrip('/')}/openai/chat/completions"
             headers = {"Authorization": f"Bearer {gemini_key}", "Content-Type": "application/json"}
             payload = {"model": model_name, "messages": messages, "max_tokens": max_tokens}
             r = requests.post(url, headers=headers, json=payload, timeout=20)
@@ -551,7 +562,7 @@ def handle_options():
 # ══════════════════════════════════════════════════════════════════════════
 @app.route("/health")
 def health():
-    mongo_ok = bool(os.environ.get("MONGO_URI"))
+    mongo_ok = bool(get_env("MONGO_URI", "MONGODB_URI"))
     return jsonify({
         "status": "healthy" if mongo_ok else "degraded",
         "message": "Obsidian API is running",
@@ -560,7 +571,7 @@ def health():
 
 @app.route("/api/test")
 def api_test():
-    mongo_ok = bool(os.environ.get("MONGO_URI"))
+    mongo_ok = bool(get_env("MONGO_URI", "MONGODB_URI"))
     return jsonify({
         "status": "ok" if mongo_ok else "degraded",
         "message": "Backend is reachable" if mongo_ok else "Backend reachable but MONGO_URI not set",
@@ -692,7 +703,7 @@ GOOGLE_CERTS_URL   = "https://www.googleapis.com/oauth2/v3/certs"
 @app.route("/api/auth/google/url", methods=["GET"])
 def google_auth_url():
     """Return the Google OAuth 2.0 authorization URL for the frontend to redirect to."""
-    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_id = get_env("GOOGLE_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_ID")
     if not client_id:
         return no_cache(jsonify({"error": "Google OAuth is not configured. Add GOOGLE_CLIENT_ID to environment variables."})), 503
 
@@ -724,8 +735,8 @@ def google_auth_callback():
     Exchange a Google auth code for tokens, verify identity, and issue a JWT.
     Body: { "code": str, "redirect_uri": str, "state": str }
     """
-    client_id     = os.environ.get("GOOGLE_CLIENT_ID", "")
-    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    client_id     = get_env("GOOGLE_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_ID")
+    client_secret = get_env("GOOGLE_CLIENT_SECRET", "GOOGLE_OAUTH_CLIENT_SECRET")
     if not client_id or not client_secret:
         return no_cache(jsonify({"error": "Google OAuth is not configured on the server."})), 503
 
