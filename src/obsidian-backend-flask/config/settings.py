@@ -4,13 +4,42 @@ import logging
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Load .env file from the backend directory and root project directory
-backend_dir = Path(__file__).parent.parent
+# Load .env file from the backend directory, api directory, and root project directory
+backend_dir = Path(__file__).resolve().parent.parent
 root_dir = backend_dir.parent.parent
 
-for env_candidate in [backend_dir / ".env", root_dir / ".env"]:
+_env_candidates = [
+    backend_dir / ".env",
+    root_dir / ".env",
+    root_dir / "api" / ".env",
+    Path(".env"),
+]
+
+try:
+    from dotenv import load_dotenv
+    for env_candidate in _env_candidates:
+        if env_candidate.exists():
+            load_dotenv(dotenv_path=env_candidate, override=True)
+except Exception:
+    pass
+
+# Manual scan fallback if python-dotenv is not installed or skipped
+for env_candidate in _env_candidates:
     if env_candidate.exists():
-        load_dotenv(dotenv_path=env_candidate, override=True)
+        try:
+            with open(env_candidate, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'").strip('"')
+                        if k and v and (k not in os.environ or not os.environ[k]):
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+# OPENROUTER_API_KEY must be set in .env or environment variables — no hardcoded fallback
 
 # ── Module-level logging configuration ────────────────────────────────────────
 # All Flask backend modules inherit this configuration.
@@ -31,8 +60,13 @@ class Settings:
     # MongoDB
     MONGO_URI = os.getenv("MONGO_URI", "").strip()
 
-    # AI Provider (OpenRouter)
-    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    # AI Provider (Google Gemini, OpenRouter, OpenAI)
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-1.5-flash")
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
     OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 

@@ -26,6 +26,7 @@ __pycache__/
 pip-log.txt
 pip-delete-this-directory.txt
 src/obsidian-backend-flask/.env
+api/.env
 src/obsidian-backend-flask/venv/
 src/obsidian-backend-flask/__pycache__/
 

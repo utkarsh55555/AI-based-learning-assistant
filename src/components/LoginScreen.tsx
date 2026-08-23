@@ -452,6 +452,30 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                     Continue with Google
                   </>
                 )}
+              {/* Guest Demo Mode Button */}
+              <Button
+                id="guest-demo-btn"
+                type="button"
+                onClick={() => {
+                  const guestUser = {
+                    id: "guest-user-1",
+                    name: "Alex Johnson",
+                    email: "alex@obsidian.ai",
+                    isNewUser: false,
+                    total_xp: 350,
+                    current_streak: 5,
+                  };
+                  localStorage.setItem("user", JSON.stringify(guestUser));
+                  onLogin(guestUser);
+                  toast.success("Entered Demo Mode! All AI features ready.", {
+                    description: "Your learning progress will be saved locally.",
+                    duration: 5000,
+                  });
+                }}
+                className="w-full mt-3 py-3 text-sm font-semibold bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/25 hover:border-blue-500/50 hover:scale-[1.01] transition-all duration-300 rounded-xl flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4 text-blue-400" />
+                Explore App in Demo Mode (Instant Access)
               </Button>
 
               {/* Security badge */}

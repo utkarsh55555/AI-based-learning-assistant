@@ -95,12 +95,24 @@ async function apiRequest<T>(
         secClearSession();
       }
       
+      // If backend returns 502/503 service unavailable (and not auth), fallback to mock mode
+      if ((response.status === 502 || response.status === 503) && !isAuthEndpoint) {
+        useMockApi = true;
+        showMockWarning();
+        return handleMockRequest<T>(endpoint, options);
+      }
+
       throw new Error(error.error || error.message || `HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
     return data.data || data;
   } catch (error: any) {
+    if (!isAuthEndpoint && (error.name === 'TypeError' || error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError'))) {
+      useMockApi = true;
+      showMockWarning();
+      return handleMockRequest<T>(endpoint, options);
+    }
     throw error;
   }
 }
@@ -508,6 +520,64 @@ function generateMockNotes(topic: string, subject?: string) {
   };
 }
 
+// Mock Flashcard Generator
+function generateMockFlashcards(topic: string, count: number = 5): any[] {
+  const cleanTopic = topic.trim() || "General Learning";
+  const subjectName = cleanTopic.charAt(0).toUpperCase() + cleanTopic.slice(1);
+  
+  return Array.from({ length: Math.min(count, 10) }, (_, i) => {
+    const num = i + 1;
+    if (num === 1) {
+      return {
+        id: `fc-${Date.now()}-1`,
+        front: `What is the core definition of ${cleanTopic}?`,
+        back: `${subjectName} encompasses fundamental principles, theoretical frameworks, and essential terminology in this field.`,
+        subject: subjectName,
+        mastered: false,
+        reviewCount: 0
+      };
+    }
+    if (num === 2) {
+      return {
+        id: `fc-${Date.now()}-2`,
+        front: `What is a primary real-world application of ${cleanTopic}?`,
+        back: `${subjectName} is applied to optimize problem-solving, automate workflows, and structure complex domain problems.`,
+        subject: subjectName,
+        mastered: false,
+        reviewCount: 0
+      };
+    }
+    if (num === 3) {
+      return {
+        id: `fc-${Date.now()}-3`,
+        front: `How does active recall accelerate learning in ${cleanTopic}?`,
+        back: `Active recall challenges the brain to retrieve information from memory without looking at notes, strengthening retention.`,
+        subject: subjectName,
+        mastered: false,
+        reviewCount: 0
+      };
+    }
+    if (num === 4) {
+      return {
+        id: `fc-${Date.now()}-4`,
+        front: `What is a common pitfall or misconception when studying ${cleanTopic}?`,
+        back: `Relying on passive reading instead of active problem solving and spaced flashcard revision.`,
+        subject: subjectName,
+        mastered: false,
+        reviewCount: 0
+      };
+    }
+    return {
+      id: `fc-${Date.now()}-${num}`,
+      front: `Key Concept #${num} in ${cleanTopic}`,
+      back: `Essential insight #${num}: Consistently practicing core definitions and formulas ensures long-term mastery.`,
+      subject: subjectName,
+      mastered: false,
+      reviewCount: 0
+    };
+  });
+}
+
 // Handle Mock Client Requests
 async function handleMockRequest<T>(endpoint: string, options: RequestInit): Promise<T> {
   const method = options.method || 'GET';
@@ -517,12 +587,48 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
   await new Promise(resolve => setTimeout(resolve, 300));
 
   // ── AUTH — never served from mock ─────────────────────────────────────────
-  // All auth endpoints require real identity verification via Supabase / Google OAuth.
-  // Allowing mock auth would let anyone create an account with a fake email.
   if (endpoint.startsWith('/api/auth/')) {
     throw new Error(
       'Authentication requires a real account. Please use "Continue with Google" to sign in securely.'
     );
+  }
+
+  // --- FLASHCARDS ---
+  if (endpoint === '/api/flashcards/generate' && method === 'POST') {
+    const { topic, count } = body || {};
+    const generated = generateMockFlashcards(topic || 'General Knowledge', count || 5);
+    const existing = getMockData<any[]>('flashcards', []);
+    const updated = [...generated, ...existing];
+    setMockData('flashcards', updated);
+    return { cards: generated } as any as T;
+  }
+
+  if (endpoint === '/api/flashcards' && method === 'GET') {
+    return getMockData<any[]>('flashcards', []) as any as T;
+  }
+
+  if (endpoint === '/api/flashcards' && method === 'POST') {
+    const { front, back, subject } = body || {};
+    const newCard = {
+      id: `fc-${Date.now()}`,
+      front: front || 'Sample Question',
+      back: back || 'Sample Answer',
+      subject: subject || 'General',
+      mastered: false,
+      reviewCount: 0
+    };
+    const cards = getMockData<any[]>('flashcards', []);
+    cards.unshift(newCard);
+    setMockData('flashcards', cards);
+    return newCard as any as T;
+  }
+
+  if (endpoint.startsWith('/api/flashcards/') && method === 'DELETE') {
+    const cardId = endpoint.split('/')[3];
+    let cards = getMockData<any[]>('flashcards', []);
+    cards = cards.filter(c => c.id !== cardId);
+    setMockData('flashcards', cards);
+    return { success: true } as any as T;
   }
 
 
@@ -1389,6 +1495,35 @@ export const userAPI = {
 
   getDashboard: async () => {
     return apiRequest('/api/user/dashboard');
+  },
+};
+
+// Flashcard API
+export const flashcardAPI = {
+  generate: async (topic: string, count: number = 5) => {
+    return apiRequest<{
+      cards: Array<{ id: string; front: string; back: string; subject: string; mastered: boolean; reviewCount: number }>;
+    }>('/api/flashcards/generate', {
+      method: 'POST',
+      body: JSON.stringify({ topic, count }),
+    });
+  },
+
+  getAll: async () => {
+    return apiRequest<Array<{ id: string; front: string; back: string; subject: string; mastered: boolean; reviewCount: number }>>('/api/flashcards');
+  },
+
+  create: async (front: string, back: string, subject: string = 'General') => {
+    return apiRequest<{ id: string; front: string; back: string; subject: string; mastered: boolean; reviewCount: number }>('/api/flashcards', {
+      method: 'POST',
+      body: JSON.stringify({ front, back, subject }),
+    });
+  },
+
+  delete: async (cardId: string) => {
+    return apiRequest<{ success: boolean }>(`/api/flashcards/${cardId}`, {
+      method: 'DELETE',
+    });
   },
 };
 
