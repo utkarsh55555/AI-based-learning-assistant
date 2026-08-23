@@ -459,52 +459,97 @@ def generate_fallback_ai_response(prompt: str) -> str:
             "relatedTopics": ["Advanced Concepts", "Practical Exercises", "Self Assessment"]
         })
 
-    return f"### Gemini AI Tutor\n\nHere is a comprehensive breakdown for **{prompt}**:\n\n1. **Overview**: Key definitions and foundational concepts.\n2. **Core Insights**: Essential principles and analytical details.\n3. **Practical Strategy**: How to apply this knowledge effectively."
+def generate_fallback_ai_response(prompt: str) -> str:
+    """Generate dynamic educational fallback response if external AI service is temporarily unreachable."""
+    prompt_lower = prompt.lower()
+    
+    # Extract only the actual user question/topic from any concatenated messages
+    clean_topic = prompt
+    if "user:" in prompt_lower:
+        clean_topic = prompt.split("user:")[-1].strip()
+    elif len(prompt) > 80:
+        clean_topic = prompt[:80] + "..."
+
+    return (
+        f"### Obsidian AI Tutor (OpenRouter)\n\n"
+        f"Here is a comprehensive breakdown for **{clean_topic}**:\n\n"
+        f"1. **Core Concept & Definition**: Detailed educational analysis of {clean_topic}.\n"
+        f"2. **Key Principles & Methodologies**: Understanding foundational mechanics and step-by-step problem solving.\n"
+        f"3. **Practical Application**: Real-world examples and active recall strategies for mastery.\n\n"
+        f"💡 *Tip: Feel free to ask me follow-up questions or generate a quiz on this topic!*"
+    )
 
 def ai_complete(prompt_or_messages, max_tokens: int = 2048) -> str:
     import requests
     if isinstance(prompt_or_messages, list):
         messages = prompt_or_messages
-        prompt_text = " ".join([m.get("content", "") for m in messages if isinstance(m, dict)])
+        user_msgs = [m.get("content", "") for m in messages if isinstance(m, dict) and m.get("role") == "user"]
+        prompt_text = user_msgs[-1] if user_msgs else "General Learning"
     else:
         messages = [{"role": "user", "content": str(prompt_or_messages)}]
         prompt_text = str(prompt_or_messages)
 
     # 1. OpenRouter API
-    or_key = get_env("OPENROUTER_API_KEY")
-    if or_key and not or_key.startswith("your_"):
-        try:
-            or_url = (get_env("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1")).rstrip("/") + "/chat/completions"
-            or_model = get_env("OPENROUTER_MODEL", default="openai/gpt-4o-mini")
-            or_headers = {
-                "Authorization": f"Bearer {or_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://ai-based-learning-assistant-xi.vercel.app",
-                "X-Title": "Obsidian AI Learning Assistant",
-            }
-            or_payload = {
-                "model": or_model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": 0.7,
-            }
-            r = requests.post(or_url, headers=or_headers, json=or_payload, timeout=30)
-            if r.ok:
-                d = r.json()
-                if "choices" in d and len(d["choices"]) > 0:
-                    text = d["choices"][0]["message"]["content"]
-                    if text and text.strip():
-                        return text.strip()
-            else:
-                logger.warning("OpenRouter HTTP %s: %s", r.status_code, r.text[:300])
-        except Exception as e:
-            logger.error("OpenRouter request exception: %s", e)
+    or_key = get_env("OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY", "OPENROUTER_KEY", "OPENROUTER_APIKEY", "AI_API_KEY")
+    
+    # Fallback to local scan if not in os.environ
+    if not or_key:
+        for _p in _env_paths:
+            if os.path.exists(_p):
+                try:
+                    with open(_p, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            if "OPENROUTER_API_KEY=" in line and not line.strip().startswith("#"):
+                                k_val = line.split("OPENROUTER_API_KEY=", 1)[1].strip().strip("'").strip('"')
+                                if k_val and not k_val.startswith("your_"):
+                                    or_key = k_val
+                                    break
+                except Exception:
+                    pass
+            if or_key:
+                break
 
-    # 2. Direct Gemini API
+    if or_key and not or_key.startswith("your_"):
+        models_to_try = [
+            get_env("OPENROUTER_MODEL", default="openai/gpt-4o-mini"),
+            "google/gemini-2.0-flash-exp:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "openai/gpt-4o-mini"
+        ]
+        seen_models = set()
+        for model in models_to_try:
+            if model in seen_models: continue
+            seen_models.add(model)
+            try:
+                or_url = (get_env("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1")).rstrip("/") + "/chat/completions"
+                or_headers = {
+                    "Authorization": f"Bearer {or_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://ai-based-learning-assistant-xi.vercel.app",
+                    "X-Title": "Obsidian AI Learning Assistant",
+                }
+                or_payload = {
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": 0.7,
+                }
+                r = requests.post(or_url, headers=or_headers, json=or_payload, timeout=25)
+                if r.ok:
+                    d = r.json()
+                    if "choices" in d and len(d["choices"]) > 0:
+                        text = d["choices"][0]["message"]["content"]
+                        if text and text.strip():
+                            return text.strip()
+                else:
+                    logger.warning("OpenRouter model %s HTTP %s: %s", model, r.status_code, r.text[:200])
+            except Exception as e:
+                logger.error("OpenRouter request error on %s: %s", model, e)
+
+    # 2. Direct Gemini API (if configured)
     gemini_key = get_env("GEMINI_API_KEY")
     if gemini_key and gemini_key != "your_gemini_api_key_here":
         model_name = (get_env("GEMINI_MODEL", default="models/gemini-1.5-flash")).replace("models/", "")
-        # Try OpenAI-compatible endpoint
         try:
             url = f"{(get_env('GEMINI_BASE_URL', default='https://generativelanguage.googleapis.com/v1beta')).rstrip('/')}/openai/chat/completions"
             headers = {"Authorization": f"Bearer {gemini_key}", "Content-Type": "application/json"}
@@ -517,6 +562,7 @@ def ai_complete(prompt_or_messages, max_tokens: int = 2048) -> str:
                     if text and text.strip():
                         return text.strip()
         except Exception:
+            pass
             pass
 
         # Try native REST endpoint

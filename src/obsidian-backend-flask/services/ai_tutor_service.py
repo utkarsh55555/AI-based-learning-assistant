@@ -239,7 +239,7 @@ def _generate_dynamic_fallback(messages: List[Dict[str, str]]) -> str:
         })
 
     return (
-        f"### Gemini AI Tutor Guide: {user_prompt.title()}\n\n"
+        f"### Obsidian AI Tutor (OpenRouter)\n\n"
         f"Here is a comprehensive breakdown for **{user_prompt}**:\n\n"
         f"#### 1. Core Principles\n"
         f"The foundation of **{user_prompt}** relies on understanding its core mechanics and structural components. "
@@ -256,14 +256,14 @@ def _generate_dynamic_fallback(messages: List[Dict[str, str]]) -> str:
 class AITutorService:
     @staticmethod
     def chat_completion(messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1500) -> str:
-        """Get chat completion using Gemini, OpenRouter, OpenAI, or dynamic fallback."""
-        # 1. Try Gemini API
-        res = call_gemini_api(messages, temperature=temperature, max_tokens=max_tokens)
+        """Get chat completion using OpenRouter, Gemini, OpenAI, or dynamic fallback."""
+        # 1. Try OpenRouter API (Primary)
+        res = call_openrouter_api(messages, temperature=temperature, max_tokens=max_tokens)
         if res:
             return res
 
-        # 2. Try OpenRouter API
-        res = call_openrouter_api(messages, temperature=temperature, max_tokens=max_tokens)
+        # 2. Try Gemini API
+        res = call_gemini_api(messages, temperature=temperature, max_tokens=max_tokens)
         if res:
             return res
 

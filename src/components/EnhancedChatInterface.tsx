@@ -39,7 +39,7 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: "Hello! I'm your AI tutor powered by Google Gemini. Ask me anything about any subject, and I'll help you learn! 📚",
+      content: "Hello! I'm Obsidian, your AI learning assistant powered by OpenRouter. Ask me anything about any subject, and I'll help you master it! 📚",
     },
   ]);
   const [input, setInput] = useState("");
