@@ -1695,3 +1695,18 @@ export async function handleGoogleCallback(): Promise<GoogleAuthResult | null> {
     access_token: data.access_token,
   };
 }
+
+/**
+ * Fetch the client config from the backend to automatically pick up OPENROUTER_API_KEY
+ * so the user doesn't have to configure VITE_OPENROUTER_API_KEY.
+ */
+export async function syncClientConfig(): Promise<void> {
+  try {
+    const data = await apiRequest<{ openrouter_key?: string }>('/api/config', { method: 'GET' });
+    if (data && data.openrouter_key && !data.openrouter_key.startsWith('your_')) {
+      localStorage.setItem('openrouter_key', data.openrouter_key);
+    }
+  } catch (e) {
+    console.warn("Could not sync client config from backend:", e);
+  }
+}

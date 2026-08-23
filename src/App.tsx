@@ -118,6 +118,14 @@ export default function App() {
               console.warn("Failed to sync cloud stats on load:", e);
             }
 
+            // Sync API keys from backend so user doesn't need to configure VITE_ vars
+            try {
+              const { syncClientConfig } = await import("./utils/api");
+              await syncClientConfig();
+            } catch (e) {
+              console.warn("Failed to sync client config:", e);
+            }
+
             setUser({
               id: currentUser.user.id,
               name: profile.name || currentUser.user.name || '',

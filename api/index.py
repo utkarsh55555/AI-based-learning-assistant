@@ -1093,6 +1093,16 @@ def dashboard(user):
                     "recent_activities": []}), 200
 
 # ══════════════════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ══════════════════════════════════════════════════════════════════════════
+@app.route("/api/config", methods=["GET"])
+@require_auth
+def get_client_config(user):
+    return jsonify({
+        "openrouter_key": get_env("OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY", "OPENROUTER_KEY", "OPENROUTER_APIKEY", "AI_API_KEY")
+    }), 200
+
+# ══════════════════════════════════════════════════════════════════════════
 # AI TUTOR
 # ══════════════════════════════════════════════════════════════════════════
 @app.route("/api/tutor/chat", methods=["POST"])

@@ -4,11 +4,11 @@
  * Bypasses the backend so real AI responses are always served.
  */
 
-const OPENROUTER_KEY = (import.meta as any).env?.VITE_OPENROUTER_API_KEY || localStorage.getItem('openrouter_key') || '';
+const getOpenRouterKey = () => (import.meta as any).env?.VITE_OPENROUTER_API_KEY || localStorage.getItem('openrouter_key') || '';
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 const OPENROUTER_MODEL = (import.meta as any).env?.VITE_OPENROUTER_MODEL || 'openai/gpt-4o-mini';
 
-const GEMINI_KEY = (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+const getGeminiKey = () => (import.meta as any).env?.VITE_GEMINI_API_KEY || (import.meta as any).env?.GEMINI_API_KEY || '';
 const GEMINI_MODEL = 'gemini-1.5-flash';
 
 // Detect a template/fallback response (not real AI output)
@@ -30,12 +30,13 @@ export async function directChat(
   maxTokens = 1200
 ): Promise<string | null> {
   // 1. Try OpenRouter
-  if (OPENROUTER_KEY) {
+  const orKey = getOpenRouterKey();
+  if (orKey) {
     try {
       const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${OPENROUTER_KEY}`,
+          'Authorization': `Bearer ${orKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': window.location.origin,
           'X-Title': 'Obsidian AI Learning Assistant',
@@ -53,13 +54,14 @@ export async function directChat(
   }
 
   // 2. Try Gemini REST API
-  if (GEMINI_KEY && GEMINI_KEY !== 'your_gemini_api_key_here') {
+  const geminiKey = getGeminiKey();
+  if (geminiKey && geminiKey !== 'your_gemini_api_key_here') {
     try {
       const geminiContents = messages
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
       const systemMsg = messages.find(m => m.role === 'system')?.content;
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`;
       const body: any = { contents: geminiContents };
       if (systemMsg) body.systemInstruction = { parts: [{ text: systemMsg }] };
       const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
