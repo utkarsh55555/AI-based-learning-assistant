@@ -597,12 +597,7 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
 
   // --- FLASHCARDS ---
   if (endpoint === '/api/flashcards/generate' && method === 'POST') {
-    const { topic, count } = body || {};
-    const generated = generateMockFlashcards(topic || 'General Knowledge', count || 5);
-    const existing = getMockData<any[]>('flashcards', []);
-    const updated = [...generated, ...existing];
-    setMockData('flashcards', updated);
-    return { cards: generated } as any as T;
+    throw new Error("API Configuration Error: Could not connect to backend to generate flashcards.");
   }
 
   if (endpoint === '/api/flashcards' && method === 'GET') {
@@ -672,7 +667,7 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
       reply = (await directTutorChat(message, conversation_history)) || "";
     } catch { }
     if (!reply) {
-      reply = getMockChatResponse(message);
+      throw new Error("API Configuration Error: Could not connect to OpenRouter or Gemini APIs directly, and backend is offline.");
     }
     const newHistory = [...(conversation_history || []), { role: 'user', content: message }, { role: 'assistant', content: reply }];
     return {
@@ -687,7 +682,11 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
     try {
       exp = (await directTutorChat(`Explain ${topic} clearly and concisely with markdown.`)) || "";
     } catch { }
-    return { explanation: exp || getMockChatResponse(topic) } as any as T;
+    if (!exp) {
+      throw new Error("API Configuration Error: Could not connect to OpenRouter or Gemini APIs directly, and backend is offline.");
+    }
+    return { explanation: exp } as any as T;
+    return { explanation: exp } as any as T;
   }
 
   // --- QUIZZES ---
@@ -699,7 +698,7 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
       questions = await directQuizGenerate(topic || 'General Knowledge', difficulty || 'medium', 5);
     } catch { }
     if (!questions || !Array.isArray(questions) || questions.length === 0) {
-      questions = generateMockQuestions(topic);
+      throw new Error("API Configuration Error: Could not connect to OpenRouter or Gemini APIs directly, and backend is offline.");
     }
     
     const newQuiz = {

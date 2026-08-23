@@ -93,7 +93,7 @@ else:
 
 CORS(app,
      resources={r"/*": {"origins": _origins}},
-     allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
+     allow_headers=["Content-Type", "Authorization", "X-CSRF-Token", "X-OpenRouter-Key"],
      methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
      supports_credentials=False)
 
@@ -587,8 +587,8 @@ def ai_complete(prompt_or_messages, max_tokens: int = 2048) -> str:
         except Exception:
             pass
 
-    # 3. Dynamic synthesis fallback
-    return generate_fallback_ai_response(prompt_text)
+    # 3. Raise exception if no AI providers worked
+    raise Exception("API Configuration Error: OpenRouter or Gemini API keys are missing or the API request failed.")
 
 # ── JWT helpers ────────────────────────────────────────────────────────────
 JWT_EXPIRY = int(os.environ.get("JWT_EXPIRY_SECONDS", "3600"))
@@ -1117,11 +1117,7 @@ def tutor_chat(user):
         }), 200
     except Exception as e:
         logger.error("Tutor chat error: %s", e)
-        reply = generate_fallback_ai_response("General Study")
-        return jsonify({
-            "response": reply,
-            "conversation_history": [{"role": "assistant", "content": reply}]
-        }), 200
+        return jsonify({"error": f"AI service error: {str(e)}"}), 500
 
 @app.route("/api/tutor/explain", methods=["POST"])
 @require_auth
