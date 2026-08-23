@@ -459,19 +459,35 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 <Button
                   id="guest-demo-btn"
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
+                    try {
+                      // Get a real signed JWT from the backend for AI features to work
+                      const res = await fetch('/api/auth/guest', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                      if (res.ok) {
+                        const data = await res.json();
+                        localStorage.setItem('access_token', data.access_token);
+                        localStorage.setItem('user', JSON.stringify(data.user));
+                        onLogin(data.user);
+                        toast.success("Entered Demo Mode! All AI features are live.", {
+                          description: "Connected to real AI — no login required.",
+                          duration: 5000,
+                        });
+                        return;
+                      }
+                    } catch (_) { /* backend unreachable — fall through to local guest */ }
+                    // Offline fallback: local guest (no AI)
                     const guestUser = {
                       id: "guest-user-1",
-                      name: "Alex Johnson",
-                      email: "alex@obsidian.ai",
+                      name: "Demo User",
+                      email: "demo@obsidian.ai",
                       isNewUser: false,
-                      total_xp: 350,
-                      current_streak: 5,
+                      total_xp: 0,
+                      current_streak: 0,
                     };
                     localStorage.setItem("user", JSON.stringify(guestUser));
                     onLogin(guestUser);
-                    toast.success("Entered Demo Mode! All AI features ready.", {
-                      description: "Your learning progress will be saved locally.",
+                    toast.warning("Running in offline demo mode.", {
+                      description: "AI features need backend. Try again when online.",
                       duration: 5000,
                     });
                   }}

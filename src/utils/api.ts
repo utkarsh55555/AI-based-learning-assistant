@@ -44,6 +44,22 @@ const getAuthToken = (): string | null => {
 // These require real identity verification (Supabase / Google OAuth).
 const AUTH_ENDPOINTS = ['/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me'];
 
+// AI endpoints — these call OpenRouter/Gemini directly on the backend and
+// must NOT trigger the global useMockApi flag even if the DB is down.
+// They have their own fallback inside api/index.py.
+const AI_ENDPOINTS = [
+  '/api/tutor',
+  '/api/quiz',
+  '/api/notes',
+  '/api/flashcards/generate',
+  '/api/mindmap',
+  '/api/study-plan',
+  '/api/ai',
+  '/api/chat',
+  '/api/explain',
+  '/api/summarize',
+];
+
 // API request helper
 async function apiRequest<T>(
   endpoint: string,
@@ -64,6 +80,11 @@ async function apiRequest<T>(
   // Auth endpoints are NEVER served from mock — always require real backend or Google OAuth
   const isAuthEndpoint = AUTH_ENDPOINTS.some(ep => endpoint.startsWith(ep));
 
+  // AI endpoints call external LLM APIs — they should NOT set useMockApi globally.
+  // They have their own server-side fallback in api/index.py.
+  const isAiEndpoint = AI_ENDPOINTS.some(ep => endpoint.startsWith(ep));
+  const canTriggerMockFallback = !isAuthEndpoint && !isAiEndpoint;
+
   // Attach CSRF token for state-changing requests, but skip for auth endpoints
   // (they are CSRF-exempt on the backend, so fetching a token is wasted latency)
   if (CSRF_METHODS.has(method) && !useMockApi && !isAuthEndpoint) {
@@ -76,7 +97,7 @@ async function apiRequest<T>(
   }
 
 
-  if (useMockApi && !isAuthEndpoint) {
+  if (useMockApi && !isAuthEndpoint && !isAiEndpoint) {
     return handleMockRequest<T>(endpoint, options);
   }
 
@@ -95,8 +116,8 @@ async function apiRequest<T>(
         secClearSession();
       }
       
-      // If backend returns 502/503 service unavailable (and not auth), fallback to mock mode
-      if ((response.status === 502 || response.status === 503) && !isAuthEndpoint) {
+      // If backend returns 502/503 service unavailable (and not auth/AI), fallback to mock mode
+      if ((response.status === 502 || response.status === 503) && canTriggerMockFallback) {
         useMockApi = true;
         showMockWarning();
         return handleMockRequest<T>(endpoint, options);
@@ -108,7 +129,7 @@ async function apiRequest<T>(
     const data = await response.json();
     return data.data || data;
   } catch (error: any) {
-    if (!isAuthEndpoint && (error.name === 'TypeError' || error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError'))) {
+    if (canTriggerMockFallback && (error.name === 'TypeError' || error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError'))) {
       useMockApi = true;
       showMockWarning();
       return handleMockRequest<T>(endpoint, options);
@@ -1535,9 +1556,18 @@ export const flashcardAPI = {
 const OAUTH_STATE_KEY       = 'obsidian_google_oauth_state';
 const OAUTH_REDIRECT_URI_KEY = 'obsidian_google_redirect_uri';
 
-/** Callback URI that must match what you set in Google Cloud Console */
+/** Callback URI that must match what you set in Google Cloud Console.
+ *  On production Vercel, use the hardcoded deployment URL so it always
+ *  matches the Authorized redirect URI registered in Google Cloud Console.
+ *  In local dev (localhost) use the dynamic origin.
+ */
 export function getGoogleRedirectUri(): string {
-  return `${window.location.origin}/auth/callback`;
+  const origin = window.location.origin;
+  // Use the exact Vercel production URL when not on localhost
+  if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+    return 'https://ai-based-learning-assistant-xi.vercel.app/auth/callback';
+  }
+  return `${origin}/auth/callback`;
 }
 
 /** Returns true when the current URL is a Google OAuth callback (?code= or ?error=) */

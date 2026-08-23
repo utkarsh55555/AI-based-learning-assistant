@@ -467,6 +467,46 @@ def require_auth(f):
         return f(user, *args, **kwargs)
     return decorated
 
+def require_auth_or_guest(f):
+    """Like require_auth but also accepts guest demo tokens.
+    Guest users get a synthetic profile so AI endpoints work without DB.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        # Try real JWT first
+        if auth.startswith("Bearer "):
+            token = auth[7:].strip()
+            try:
+                payload = pyjwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+                user_id = payload.get("sub", "")
+                # Guest user — no DB lookup needed
+                if user_id.startswith("guest-"):
+                    guest = {
+                        "user_id": user_id, "name": "Demo User",
+                        "email": "demo@obsidian.ai",
+                        "total_xp": 0, "current_streak": 0,
+                        "is_new_user": False,
+                    }
+                    return f(guest, *args, **kwargs)
+                # Real user — try DB
+                try:
+                    db = get_db()
+                    profile = db.user_profiles.find_one({"user_id": user_id})
+                    if profile:
+                        return f(clean_doc(profile), *args, **kwargs)
+                except Exception:
+                    # DB unavailable but token is valid — allow with minimal profile
+                    if user_id:
+                        minimal = {"user_id": user_id, "name": "User", "email": "",
+                                   "total_xp": 0, "current_streak": 0}
+                        return f(minimal, *args, **kwargs)
+            except Exception:
+                pass
+        return jsonify({"error": "Unauthorized"}), 401
+    return decorated
+
+
 def no_cache(response):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
@@ -476,7 +516,7 @@ def no_cache(response):
 # ── CSRF before-request ────────────────────────────────────────────────────
 _CSRF_EXEMPT = {
     "health", "api_test", "api_root", "csrf_token",
-    "signup", "login", "logout",
+    "signup", "login", "logout", "guest_token",
     "google_auth_url", "google_auth_callback",
     "tutor_chat", "quiz_generate", "notes_generate", "mindmap_generate",
     "handle_options",
@@ -649,6 +689,33 @@ GOOGLE_AUTH_URL    = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL   = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 GOOGLE_CERTS_URL   = "https://www.googleapis.com/oauth2/v3/certs"
+
+# ── Guest Demo Token ────────────────────────────────────────────────────────
+@app.route("/api/auth/guest", methods=["POST"])
+@limiter.limit("30 per minute")
+def guest_token():
+    """Issue a short-lived JWT for guest/demo users.
+    This allows AI endpoints to work without MongoDB for unauthenticated users.
+    """
+    guest_id = "guest-" + secrets.token_hex(8)
+    token = pyjwt.encode(
+        {"sub": guest_id, "iat": int(time.time()), "exp": int(time.time()) + 86400,
+         "role": "guest"},
+        SECRET_KEY, algorithm="HS256"
+    )
+    return no_cache(jsonify({
+        "access_token": token,
+        "user": {
+            "id": guest_id,
+            "name": "Demo User",
+            "email": "demo@obsidian.ai",
+            "total_xp": 0,
+            "current_streak": 0,
+            "is_new_user": False,
+            "auth_provider": "guest",
+        }
+    })), 200
+
 
 @app.route("/api/auth/google/url", methods=["GET"])
 def google_auth_url():
@@ -861,7 +928,7 @@ def dashboard(user):
 # AI TUTOR
 # ══════════════════════════════════════════════════════════════════════════
 @app.route("/api/tutor/chat", methods=["POST"])
-@require_auth
+@require_auth_or_guest
 @limiter.limit("30 per minute")
 def tutor_chat(user):
     try:
@@ -897,7 +964,7 @@ def tutor_chat(user):
         }), 200
 
 @app.route("/api/tutor/explain", methods=["POST"])
-@require_auth
+@require_auth_or_guest
 @limiter.limit("30 per minute")
 def tutor_explain(user):
     try:
@@ -912,7 +979,7 @@ def tutor_explain(user):
         return jsonify({"error": f"AI service error: {str(e)}"}), 500
 
 @app.route("/api/tutor/upload", methods=["POST"])
-@require_auth
+@require_auth_or_guest
 @limiter.limit("10 per minute")
 def tutor_upload(user):
     try:
@@ -947,7 +1014,7 @@ def tutor_upload(user):
 # QUIZ
 # ══════════════════════════════════════════════════════════════════════════
 @app.route("/api/quiz/generate", methods=["POST"])
-@require_auth
+@require_auth_or_guest
 @limiter.limit("20 per minute")
 def quiz_generate(user):
     try:
@@ -1053,7 +1120,7 @@ def get_quiz(user, quiz_id):
 # NOTES
 # ══════════════════════════════════════════════════════════════════════════
 @app.route("/api/notes/generate", methods=["POST"])
-@require_auth
+@require_auth_or_guest
 @limiter.limit("20 per minute")
 def notes_generate(user):
     try:
@@ -1158,7 +1225,7 @@ def notes_delete(user, note_id):
 # MIND MAP
 # ══════════════════════════════════════════════════════════════════════════
 @app.route("/api/mindmap/generate", methods=["POST"])
-@require_auth
+@require_auth_or_guest
 @limiter.limit("20 per minute")
 def mindmap_generate(user):
     try:
