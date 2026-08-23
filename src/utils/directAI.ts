@@ -133,4 +133,4 @@ Include 4-6 main topics, each with 2-4 subtopics.`;
   return null;
 }
 
-export const hasDirectAI = !!(OPENROUTER_KEY || (GEMINI_KEY && GEMINI_KEY !== 'your_gemini_api_key_here'));
+export const hasDirectAI = () => !!(getOpenRouterKey() || (getGeminiKey() && getGeminiKey() !== 'your_gemini_api_key_here'));
