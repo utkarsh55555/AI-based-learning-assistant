@@ -179,7 +179,7 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
       }
 
       if (!responseText) {
-        responseText = "I'm ready to help you learn! What specific topic or question would you like to explore today? 📚";
+        responseText = "API Error: Unable to connect to AI services. Please check your OpenRouter/Gemini API keys or network connection.";
       }
 
       // Typing animation — single cancellable interval instead of N setTimeout calls
