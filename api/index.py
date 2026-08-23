@@ -490,7 +490,14 @@ def ai_complete(prompt_or_messages, max_tokens: int = 2048) -> str:
         prompt_text = str(prompt_or_messages)
 
     # 1. OpenRouter API
-    or_key = get_env("OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY", "OPENROUTER_KEY", "OPENROUTER_APIKEY", "AI_API_KEY")
+    req_key = ""
+    try:
+        if request:
+            req_key = request.headers.get("X-OpenRouter-Key", "")
+    except Exception:
+        pass
+
+    or_key = req_key or get_env("OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY", "OPENROUTER_KEY", "OPENROUTER_APIKEY", "AI_API_KEY")
     
     # Fallback to local scan if not in os.environ
     if not or_key:

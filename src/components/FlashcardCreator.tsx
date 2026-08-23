@@ -92,7 +92,7 @@ export function FlashcardCreator() {
     }
 
     setIsGenerating(true);
-    toast.info(`Generating Gemini AI flashcards for "${targetTopic}"...`);
+    toast.info(`Generating AI flashcards with OpenRouter for "${targetTopic}"...`);
 
     try {
       const { flashcardAPI } = await import("../utils/api");
@@ -330,27 +330,22 @@ export function FlashcardCreator() {
         </div>
       </div>
 
-      {/* AI Generator Box */}
-      <AnimatePresence>
-        {showAiDialog && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-          >
-            <Card className="glass-card p-6 border-blue-500/30 bg-blue-950/20">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-blue-400" />
-                  <h3 className="text-lg font-medium text-blue-300">Generate Flashcards with Gemini AI</h3>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => setShowAiDialog(false)}>
-                  <X className="w-4 h-4" />
-                </Button>
+      {/* AI Generate Dialog */}
+      {showAiDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-blue-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-blue-400" />
+                <h3 className="text-lg font-medium text-blue-300">Generate Flashcards with OpenRouter AI</h3>
               </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Enter any subject or topic, and Gemini AI will generate structured practice flashcards for you.
-              </p>
+              <button onClick={() => setShowAiDialog(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-300">
+              Enter any subject or topic, and OpenRouter AI will generate structured practice flashcards for you.
+            </p>
               <div className="space-y-4">
                 <Input
                   placeholder="e.g., Quantum Computing, Organic Chemistry, Calculus Derivatives..."

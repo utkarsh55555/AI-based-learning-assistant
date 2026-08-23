@@ -1,10 +1,10 @@
-﻿/**
+/**
  * directAI.ts
  * Calls OpenRouter (or Gemini) directly from the browser.
  * Bypasses the backend so real AI responses are always served.
  */
 
-const OPENROUTER_KEY = (import.meta as any).env?.VITE_OPENROUTER_API_KEY || '';
+const OPENROUTER_KEY = (import.meta as any).env?.VITE_OPENROUTER_API_KEY || localStorage.getItem('openrouter_key') || '';
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 const OPENROUTER_MODEL = (import.meta as any).env?.VITE_OPENROUTER_MODEL || 'openai/gpt-4o-mini';
 
@@ -13,11 +13,15 @@ const GEMINI_MODEL = 'gemini-1.5-flash';
 
 // Detect a template/fallback response (not real AI output)
 const FALLBACK_MARKERS = [
-  '### Gemini AI Tutor\n\nHere is a comprehensive breakdown for',
-  '1. **Overview**: Key definitions and foundational concepts.\n2. **Core Insights**',
+  '### Gemini AI Tutor',
+  'Here is a comprehensive breakdown for',
+  '1. **Overview**: Key definitions',
+  '1. **Core Concept & Definition**',
+  '### Obsidian AI Tutor (OpenRouter)',
 ];
 
 export function isTemplateResponse(text: string): boolean {
+  if (!text) return true;
   return FALLBACK_MARKERS.some(m => text.includes(m));
 }
 

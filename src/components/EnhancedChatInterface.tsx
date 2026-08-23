@@ -11,6 +11,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { tutorAPI } from "../utils/api";
+import { directTutorChat, isTemplateResponse } from "../utils/directAI";
 import {
   getUserStats,
   recordChatMessage,
@@ -158,8 +159,28 @@ export function EnhancedChatInterface({ userId = "" }: EnhancedChatInterfaceProp
         .slice(-20)
         .map(msg => ({ role: msg.role, content: msg.content }));
 
-      const response = await tutorAPI.chat(finalMessage, conversationHistory);
-      const responseText = response.response;
+      let responseText = "";
+      try {
+        const response = await tutorAPI.chat(finalMessage, conversationHistory);
+        responseText = response.response;
+      } catch (backendErr) {
+        console.warn("Backend chat failed, falling back to direct OpenRouter:", backendErr);
+      }
+
+      if (!responseText || isTemplateResponse(responseText)) {
+        try {
+          const directResp = await directTutorChat(finalMessage, conversationHistory);
+          if (directResp) {
+            responseText = directResp;
+          }
+        } catch (directErr) {
+          console.warn("Direct OpenRouter call error:", directErr);
+        }
+      }
+
+      if (!responseText) {
+        responseText = "I'm ready to help you learn! What specific topic or question would you like to explore today? 📚";
+      }
 
       // Typing animation — single cancellable interval instead of N setTimeout calls
       let i = 0;

@@ -66,7 +66,7 @@ export function ChatInterface() {
       "Perfect! This is a fundamental concept. Here's how it works:",
     ];
     return responses[Math.floor(Math.random() * responses.length)] + "\n\n" +
-        `I'd be glad to explain **${message}**! As your Gemini AI Tutor, I can break down core concepts, generate practice quizzes, or build interactive mind maps for you. What would you like to focus on first? 🌟`;
+        `I'd be glad to explain **${query}**! As your Obsidian AI Tutor, I can break down core concepts, generate practice quizzes, or build interactive mind maps for you. What would you like to focus on first? 🌟`;
   };
 
   return (

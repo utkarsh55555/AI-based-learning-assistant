@@ -61,6 +61,11 @@ async function apiRequest<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  const openrouterKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY || localStorage.getItem('openrouter_key') || '';
+  if (openrouterKey && !openrouterKey.startsWith('your_')) {
+    headers['X-OpenRouter-Key'] = openrouterKey;
+  }
+
   // Auth endpoints are NEVER served from mock — always require real backend or Google OAuth
   const isAuthEndpoint = AUTH_ENDPOINTS.some(ep => endpoint.startsWith(ep));
 
