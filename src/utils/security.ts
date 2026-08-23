@@ -197,9 +197,10 @@ export function clearSession(): void {
   invalidateCsrfToken();
 }
 
-/** Check if the stored JWT looks structurally valid (3 base64 parts). */
+/** Check if the stored JWT looks structurally valid (3 base64 parts or guest/demo token). */
 export function isTokenValid(token: string | null): boolean {
   if (!token) return false;
+  if (token.startsWith('guest-') || token.startsWith('demo-') || token === 'guest-demo-token') return true;
   const parts = token.split('.');
   return parts.length === 3;
 }

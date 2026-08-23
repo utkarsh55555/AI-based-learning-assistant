@@ -469,6 +469,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                       current_streak: 5,
                     };
                     localStorage.setItem("user", JSON.stringify(guestUser));
+                    localStorage.setItem("access_token", "guest-demo-token");
                     localStorage.setItem("auth_token", "guest-demo-token");
                     onLogin(guestUser);
                     toast.success("Entered Demo Mode! All AI features ready.", {

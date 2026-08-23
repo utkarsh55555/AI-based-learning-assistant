@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import { getCsrfToken, clearSession as secClearSession, isTokenValid } from './security';
+import { directTutorChat, directQuizGenerate, directNotesGenerate, directMindmapGenerate, directChat } from './directAI';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '';
 
@@ -81,9 +82,7 @@ async function apiRequest<T>(
   }
 
 
-  if (useMockApi && !isAuthEndpoint) {
-    return handleMockRequest<T>(endpoint, options);
-  }
+
 
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -668,7 +667,13 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
   // --- TUTOR / CHAT ---
   if (endpoint === '/api/tutor/chat') {
     const { message, conversation_history } = body;
-    const reply = getMockChatResponse(message);
+    let reply = "";
+    try {
+      reply = (await directTutorChat(message, conversation_history)) || "";
+    } catch { }
+    if (!reply) {
+      reply = getMockChatResponse(message);
+    }
     const newHistory = [...(conversation_history || []), { role: 'user', content: message }, { role: 'assistant', content: reply }];
     return {
       response: reply,
@@ -678,18 +683,28 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
 
   if (endpoint === '/api/tutor/explain') {
     const { topic } = body;
-    return { explanation: getMockChatResponse(topic) } as any as T;
+    let exp = "";
+    try {
+      exp = (await directTutorChat(`Explain ${topic} clearly and concisely with markdown.`)) || "";
+    } catch { }
+    return { explanation: exp || getMockChatResponse(topic) } as any as T;
   }
 
   // --- QUIZZES ---
   if (endpoint === '/api/quiz/generate') {
     const { topic, difficulty } = body;
     const quizId = Math.random().toString(36).substring(7);
-    const questions = generateMockQuestions(topic);
+    let questions = null;
+    try {
+      questions = await directQuizGenerate(topic || 'General Knowledge', difficulty || 'medium', 5);
+    } catch { }
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      questions = generateMockQuestions(topic);
+    }
     
     const newQuiz = {
       id: quizId,
-      title: `${topic.charAt(0).toUpperCase() + topic.slice(1)} Quiz`,
+      title: `${(topic || 'General').charAt(0).toUpperCase() + (topic || 'General').slice(1)} Quiz`,
       topic,
       difficulty,
       questions
@@ -792,12 +807,18 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
   // --- NOTES ---
   if (endpoint === '/api/notes/generate') {
     const { topic, subject } = body;
-    const aiData = generateMockNotes(topic, subject);
+    let aiData = null;
+    try {
+      aiData = await directNotesGenerate(topic, subject || 'General');
+    } catch { }
+    if (!aiData || !aiData.content) {
+      aiData = generateMockNotes(topic, subject);
+    }
     const noteId = Math.random().toString(36).substring(7);
     
     const newNote = {
       id: noteId,
-      title: aiData.title,
+      title: aiData.title || `${topic} Notes`,
       content: aiData.content,
       tags: [subject || 'General', 'AI-Generated'],
       subject: subject || 'General',
@@ -888,11 +909,17 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
   if (endpoint === '/api/mindmap/generate') {
     const { topic } = body;
     const mapId = Math.random().toString(36).substring(7);
-    const topics = generateMockMindmap(topic);
+    let realMap = null;
+    try {
+      realMap = await directMindmapGenerate(topic);
+    } catch { }
+    const topics = (realMap && Array.isArray(realMap.topics) && realMap.topics.length > 0)
+      ? realMap.topics
+      : generateMockMindmap(topic);
     
     const newMap = {
       id: mapId,
-      title: `${topic.charAt(0).toUpperCase() + topic.slice(1)} Mind Map`,
+      title: (realMap && realMap.title) ? realMap.title : `${(topic || 'Topic').charAt(0).toUpperCase() + (topic || 'Topic').slice(1)} Mind Map`,
       topics,
       ai_generated: true,
       created_at: new Date().toISOString()
