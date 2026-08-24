@@ -695,7 +695,7 @@ def handle_options():
         if _origins == ["*"] or origin in _origins:
             r.headers["Access-Control-Allow-Origin"] = origin or "*"
         r.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-        r.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization,X-CSRF-Token"
+        r.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization,X-CSRF-Token,X-OpenRouter-Key"
         r.headers["Access-Control-Max-Age"] = "86400"
         return r
 

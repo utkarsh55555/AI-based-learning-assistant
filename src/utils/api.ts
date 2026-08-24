@@ -1,6 +1,6 @@
 import { toast } from "sonner";
 import { getCsrfToken, clearSession as secClearSession, isTokenValid } from './security';
-import { directTutorChat, directQuizGenerate, directNotesGenerate, directMindmapGenerate, directChat } from './directAI';
+import { directTutorChat, directQuizGenerate, directNotesGenerate, directMindmapGenerate, directFlashcardsGenerate, directStudyPlanGenerate, directChat } from './directAI';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '';
 
@@ -597,7 +597,26 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
 
   // --- FLASHCARDS ---
   if (endpoint === '/api/flashcards/generate' && method === 'POST') {
-    throw new Error("API Configuration Error: Could not connect to backend to generate flashcards.");
+    const { topic, subject, count } = body || {};
+    let cards = null;
+    try {
+      cards = await directFlashcardsGenerate(topic || 'General Knowledge', subject || 'General', count || 5);
+    } catch { }
+    if (!cards || !Array.isArray(cards) || cards.length === 0) {
+      throw new Error("API Configuration Error: Could not connect to OpenRouter or Gemini APIs directly, and backend is offline.");
+    }
+    const flashcards = cards.map((c: any, i: number) => ({
+      id: `fc-${Date.now()}-${i}`,
+      front: c.front || c.question || `Question ${i + 1}`,
+      back: c.back || c.answer || `Answer ${i + 1}`,
+      subject: c.subject || subject || 'General',
+      mastered: false,
+      reviewCount: 0
+    }));
+    const existing = getMockData<any[]>('flashcards', []);
+    existing.unshift(...flashcards);
+    setMockData('flashcards', existing);
+    return flashcards as any as T;
   }
 
   if (endpoint === '/api/flashcards' && method === 'GET') {
@@ -685,7 +704,6 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
     if (!exp) {
       throw new Error("API Configuration Error: Could not connect to OpenRouter or Gemini APIs directly, and backend is offline.");
     }
-    return { explanation: exp } as any as T;
     return { explanation: exp } as any as T;
   }
 
@@ -985,15 +1003,25 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
     const { subject, duration_weeks, current_level } = body;
     const planId = Math.random().toString(36).substring(7);
     
-    const weeks = Array.from({ length: duration_weeks || 4 }, (_, i) => ({
-      week: i + 1,
-      title: `Week ${i + 1}: ${subject} Core Mastery`,
-      tasks: [
-        { id: `t-${i}-1`, title: `Introduction to ${subject} Concepts`, completed: false },
-        { id: `t-${i}-2`, title: `Detailed Video Lecture & Textbook Study`, completed: false },
-        { id: `t-${i}-3`, title: `Practice Exercises & Chapter Quiz`, completed: false }
-      ]
-    }));
+    let weeks = null;
+    try {
+      const aiPlan = await directStudyPlanGenerate(subject || 'General', duration_weeks || 4, current_level || 'intermediate');
+      if (aiPlan && Array.isArray(aiPlan.weeks) && aiPlan.weeks.length > 0) {
+        weeks = aiPlan.weeks;
+      }
+    } catch { }
+
+    if (!weeks) {
+      weeks = Array.from({ length: duration_weeks || 4 }, (_, i) => ({
+        week: i + 1,
+        title: `Week ${i + 1}: ${subject} Core Mastery`,
+        tasks: [
+          { id: `t-${i}-1`, title: `Introduction to ${subject} Concepts`, completed: false },
+          { id: `t-${i}-2`, title: `Detailed Video Lecture & Textbook Study`, completed: false },
+          { id: `t-${i}-3`, title: `Practice Exercises & Chapter Quiz`, completed: false }
+        ]
+      }));
+    }
 
     const newPlan = {
       id: planId,

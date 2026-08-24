@@ -25,6 +25,11 @@ export function isTemplateResponse(text: string): boolean {
   return FALLBACK_MARKERS.some(m => text.includes(m));
 }
 
+/** Strip markdown code fences (```json ... ```) from AI response text */
+function stripCodeFences(text: string): string {
+  return text.replace(/```(?:json)?\s*\n?/g, '').trim();
+}
+
 export async function directChat(
   messages: Array<{ role: string; content: string }>,
   maxTokens = 1200
@@ -97,7 +102,7 @@ Return ONLY a valid JSON array (no markdown). Example:
   const text = await directChat([{ role: 'user', content: prompt }], 2048);
   if (!text) return null;
   try {
-    const cleaned = text.replace(/` + '```' + `json\n?|` + '```' + `\n?/g, '').trim();
+    const cleaned = stripCodeFences(text);
     const s = cleaned.indexOf('['), e = cleaned.lastIndexOf(']');
     if (s !== -1 && e !== -1) return JSON.parse(cleaned.slice(s, e + 1));
   } catch { }
@@ -111,7 +116,7 @@ Return ONLY valid JSON (no markdown fences):
   const text = await directChat([{ role: 'user', content: prompt }], 2048);
   if (!text) return null;
   try {
-    const cleaned = text.replace(/` + '```' + `json\n?|` + '```' + `\n?/g, '').trim();
+    const cleaned = stripCodeFences(text);
     const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
     if (s !== -1 && e !== -1) return JSON.parse(cleaned.slice(s, e + 1));
   } catch { }
@@ -126,7 +131,36 @@ Include 4-6 main topics, each with 2-4 subtopics.`;
   const text = await directChat([{ role: 'user', content: prompt }], 1500);
   if (!text) return null;
   try {
-    const cleaned = text.replace(/` + '```' + `json\n?|` + '```' + `\n?/g, '').trim();
+    const cleaned = stripCodeFences(text);
+    const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
+    if (s !== -1 && e !== -1) return JSON.parse(cleaned.slice(s, e + 1));
+  } catch { }
+  return null;
+}
+
+export async function directFlashcardsGenerate(topic: string, subject: string, count: number = 5): Promise<any[] | null> {
+  const prompt = `Generate exactly ${count} flashcards about "${topic}" (Subject: ${subject}).
+Return ONLY a valid JSON array (no markdown fences):
+[{"front":"Question?","back":"Answer","subject":"${subject}"}]`;
+  const text = await directChat([{ role: 'user', content: prompt }], 1500);
+  if (!text) return null;
+  try {
+    const cleaned = stripCodeFences(text);
+    const s = cleaned.indexOf('['), e = cleaned.lastIndexOf(']');
+    if (s !== -1 && e !== -1) return JSON.parse(cleaned.slice(s, e + 1));
+  } catch { }
+  return null;
+}
+
+export async function directStudyPlanGenerate(subject: string, durationWeeks: number, level: string): Promise<any | null> {
+  const prompt = `Generate a ${durationWeeks}-week study plan for "${subject}" at ${level} level.
+Return ONLY valid JSON (no markdown fences):
+{"weeks":[{"week":1,"title":"Week 1: Topic","tasks":[{"id":"t1-1","title":"Task description","completed":false}]}]}
+Include 3-4 tasks per week.`;
+  const text = await directChat([{ role: 'user', content: prompt }], 2048);
+  if (!text) return null;
+  try {
+    const cleaned = stripCodeFences(text);
     const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
     if (s !== -1 && e !== -1) return JSON.parse(cleaned.slice(s, e + 1));
   } catch { }
