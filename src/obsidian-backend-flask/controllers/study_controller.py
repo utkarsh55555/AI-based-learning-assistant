@@ -1,4 +1,4 @@
-from services.supabase_service import SupabaseService
+from services.mongo_service import MongoService
 from services.ai_tutor_service import AITutorService
 from services.xp_service import XPService
 import json
@@ -8,11 +8,9 @@ class StudyController:
     def create_study_plan(user_id: str, subject: str, duration_weeks: int, current_level: str = "intermediate"):
         """Create a study plan"""
         try:
-            # Generate AI study plan
             plan_json = AITutorService.generate_study_plan(subject, duration_weeks, current_level)
             plan_data = json.loads(plan_json)
             
-            # Save to database
             db_data = {
                 "user_id": user_id,
                 "subject": subject,
@@ -22,8 +20,7 @@ class StudyController:
                 "progress": 0
             }
             
-            study_plan = SupabaseService.create_record("study_plans", db_data)
-            
+            study_plan = MongoService.create_record("study_plans", db_data)
             return study_plan
         except Exception as e:
             raise Exception(f"Study plan creation error: {str(e)}")
@@ -31,25 +28,21 @@ class StudyController:
     @staticmethod
     def get_study_plan(plan_id: str):
         """Get study plan by ID"""
-        return SupabaseService.get_record("study_plans", plan_id)
+        return MongoService.get_record("study_plans", plan_id, id_column="_id")
     
     @staticmethod
     def get_user_study_plans(user_id: str):
         """Get user's study plans"""
-        return SupabaseService.query_records(
-            "study_plans",
-            lambda q: q.select("*").eq("user_id", user_id).order("created_at", desc=True)
-        )
+        return MongoService.get_records("study_plans", filters={"user_id": user_id}, order_by="-created_at")
     
     @staticmethod
     def update_study_plan_progress(plan_id: str, user_id: str, progress: float):
         """Update study plan progress"""
-        # Verify ownership
-        plan = SupabaseService.get_record("study_plans", plan_id)
+        plan = MongoService.get_record("study_plans", plan_id, id_column="_id")
         if not plan or plan.get("user_id") != user_id:
             raise Exception("Unauthorized or plan not found")
         
-        return SupabaseService.update_record("study_plans", plan_id, {"progress": progress})
+        return MongoService.update_record("study_plans", plan_id, {"progress": progress}, id_column="_id")
     
     @staticmethod
     def create_study_session(user_id: str, duration_minutes: int, subject: str = None, notes: str = None):
@@ -61,7 +54,7 @@ class StudyController:
             "notes": notes
         }
         
-        session = SupabaseService.create_record("study_sessions", session_data)
+        session = MongoService.create_record("study_sessions", session_data)
         
         # Award XP
         XPService.award_xp(user_id, "study_session", multiplier=duration_minutes / 25)
@@ -71,9 +64,11 @@ class StudyController:
     @staticmethod
     def get_study_stats(user_id: str, days: int = 7):
         """Get study statistics"""
-        sessions = SupabaseService.query_records(
+        sessions = MongoService.get_records(
             "study_sessions",
-            lambda q: q.select("*").eq("user_id", user_id).order("created_at", desc=True).limit(days * 5)
+            filters={"user_id": user_id},
+            order_by="-created_at",
+            limit=days * 5
         )
         
         total_time = sum(s.get("duration_minutes", 0) for s in sessions)

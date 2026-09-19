@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from "react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -14,6 +15,7 @@ import { CheckCircle2, XCircle, Clock, Award, Sparkles, Zap, Target, Brain, Came
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner@2.0.3";
 import { quizAPI } from "../utils/api";
+import { recordQuizResult } from "../utils/userStatsStore";
 
 interface Question {
   id: number;
@@ -68,7 +70,7 @@ const mockQuestions: Question[] = [
   },
 ];
 
-export function EnhancedQuizMode() {
+export function EnhancedQuizMode({ userId = "" }: { userId?: string }) {
   const [quizMode, setQuizMode] = useState<"practice" | "timed" | "rapid">("practice");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard" | "adaptive">("adaptive");
   const [subject, setSubject] = useState<string>("all");
@@ -146,6 +148,24 @@ export function EnhancedQuizMode() {
     };
   }, [cameraStream]);
 
+  // Attach camera stream to video element when it renders
+  useEffect(() => {
+    if (isStarted && cameraStream && videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+    }
+  }, [isStarted, cameraStream]);
+
+  // Handle auto-generation from external redirects (e.g., Mind Maps)
+  useEffect(() => {
+    const pendingTopic = sessionStorage.getItem('pendingQuizTopic');
+    if (pendingTopic) {
+      setQuizTopic(pendingTopic);
+      sessionStorage.removeItem('pendingQuizTopic');
+      // Give state a moment to settle, then generate
+      setTimeout(() => generateQuiz(pendingTopic), 100);
+    }
+  }, []);
+
   // Stop camera when quiz completes
   useEffect(() => {
     if (quizComplete && cameraStream) {
@@ -177,8 +197,9 @@ export function EnhancedQuizMode() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const generateQuiz = async () => {
-    if (!quizTopic.trim()) {
+  const generateQuiz = async (overrideTopic?: string | any) => {
+    const topicToUse = typeof overrideTopic === 'string' ? overrideTopic : quizTopic;
+    if (!topicToUse.trim()) {
       toast.error("Please enter a topic for the quiz");
       return;
     }
@@ -190,17 +211,17 @@ export function EnhancedQuizMode() {
       const actualDifficulty = difficulty === "adaptive" ? "medium" : difficulty;
       const numQuestions = 5;
       
-      const quiz = await quizAPI.generate(quizTopic, actualDifficulty, numQuestions);
+      const quiz = await quizAPI.generate(topicToUse, actualDifficulty, numQuestions);
       
       // Parse questions from the quiz
       const parsedQuestions: Question[] = quiz.questions.map((q: any, index: number) => ({
         id: index + 1,
-        question: q.question,
+        question: typeof q.question === 'string' ? q.question : String(q.question || ''),
         type: "mcq" as const,
-        options: q.options || [],
-        correct: q.correct,
-        explanation: q.explanation || "",
-        difficulty: q.difficulty || actualDifficulty,
+        options: Array.isArray(q.options) ? q.options.map((o: any) => typeof o === 'string' ? o : String(o ?? '')) : [],
+        correct: typeof q.correct === 'number' ? q.correct : parseInt(String(q.correct ?? 0), 10),
+        explanation: typeof q.explanation === 'string' ? q.explanation : String(q.explanation || ''),
+        difficulty: typeof q.difficulty === 'string' ? q.difficulty : (actualDifficulty),
         subject: quizTopic
       }));
 
@@ -221,19 +242,21 @@ export function EnhancedQuizMode() {
       return;
     }
 
-    // For practice mode, camera is optional
     if (quizMode === "practice") {
+      // Camera is optional for practice — attempt it but don't block on denial
+      requestCameraAccess().catch(() => {});
       setIsStarted(true);
       setStartTime(Date.now());
-      toast.success("Quiz started!");
-      return;
-    }
-
-    // For timed and rapid modes, require camera
-    const cameraGranted = await requestCameraAccess();
-    if (cameraGranted) {
-      setIsStarted(true);
-      setStartTime(Date.now());
+      toast.success("Quiz started! (Practice mode — camera optional)");
+    } else {
+      // Require camera for exam / timed modes
+      const cameraGranted = await requestCameraAccess();
+      if (cameraGranted) {
+        setIsStarted(true);
+        setStartTime(Date.now());
+      } else {
+        toast.error("Camera access is required to start this quiz mode.");
+      }
     }
   };
 
@@ -299,6 +322,17 @@ export function EnhancedQuizMode() {
       
       setXpEarned(result.xp?.xp_earned || 0);
       setQuizComplete(true);
+
+      // Record real quiz result in stats store
+      if (userId) {
+        recordQuizResult(
+          userId,
+          quizTopic,
+          result.score,
+          result.total,
+          result.xp?.xp_earned
+        );
+      }
       
       toast.success(`Quiz completed! Score: ${result.score}/${result.total} (${result.percentage.toFixed(1)}%)`, {
         description: `You earned ${result.xp?.xp_earned || 0} XP!`
@@ -360,18 +394,16 @@ export function EnhancedQuizMode() {
               </p>
             </div>
 
-            {/* Camera Permission Alert - Only show for timed and rapid modes */}
-            {quizMode !== "practice" && (
-              <Alert className="mb-6 bg-blue-600/10 border-blue-600/30">
-                <Camera className="w-4 h-4" />
-                <AlertDescription className="ml-2">
-                  <span className="text-blue-400">Camera monitoring required:</span> This quiz mode requires camera access for proctoring purposes. Your camera will be active during the entire quiz.
-                </AlertDescription>
-              </Alert>
-            )}
+            {/* Camera Permission Alert - Show for all modes */}
+            <Alert className="mb-6 bg-blue-600/10 border-blue-600/30">
+              <Camera className="w-4 h-4" />
+              <AlertDescription className="ml-2">
+                <span className="text-blue-400">Camera monitoring required:</span> This quiz mode requires camera access for proctoring purposes. Your camera will be active during the entire quiz.
+              </AlertDescription>
+            </Alert>
 
-            {/* Camera Error Alert - Only show for timed and rapid modes */}
-            {cameraError && cameraPermission === "denied" && quizMode !== "practice" && (
+            {/* Camera Error Alert - Show for all modes */}
+            {cameraError && cameraPermission === "denied" && (
               <Alert className="mb-6 bg-red-600/10 border-red-600/30">
                 <AlertTriangle className="w-4 h-4 text-red-400" />
                 <AlertDescription className="ml-2 text-red-400">
@@ -494,10 +526,7 @@ export function EnhancedQuizMode() {
                 className="w-full gradient-blue hover:opacity-90 py-6 neon-border pulse-glow disabled:opacity-50"
               >
                 <Camera className="w-5 h-5 mr-2" />
-                {quizMode === "practice" ? 
-                  (questions.length > 0 ? "Start Quiz" : "Generate Quiz First") :
-                  (questions.length > 0 ? "Start Quiz with Camera" : "Generate Quiz First")
-                }
+                {questions.length > 0 ? "Start Quiz with Camera" : "Generate Quiz First"}
               </Button>
             </div>
           </Card>

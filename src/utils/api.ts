@@ -1,9 +1,14 @@
 import { toast } from "sonner";
+import { getCsrfToken, clearSession as secClearSession, isTokenValid } from './security';
+import { directTutorChat, directQuizGenerate, directNotesGenerate, directMindmapGenerate, directFlashcardsGenerate, directStudyPlanGenerate, directChat } from './directAI';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '';
 
 let useMockApi = false;
 let toastShown = false;
+
+// HTTP methods that require a CSRF token
+const CSRF_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 function showMockWarning() {
   if (!toastShown) {
@@ -22,15 +27,23 @@ function showMockWarning() {
 // Get auth token from localStorage
 const getAuthToken = (): string | null => {
   const token = localStorage.getItem('access_token');
-  if (token && token.split('.').length !== 3 && token !== 'mock-access-token') {
-    console.warn('Invalid token format detected, clearing token');
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
+  // If they have the mock token, clear it so they are forced to log in with the real backend
+  if (token === 'mock-access-token') {
+    console.warn('Mock token detected, clearing session to connect to real backend');
+    secClearSession();
+    return null;
+  }
+  if (token && !isTokenValid(token)) {
+    console.warn('Invalid token format detected, clearing session');
+    secClearSession();
     return null;
   }
   return token;
 };
+
+// Auth endpoints that must NEVER fall back to mock mode.
+// These require real identity verification (Supabase / Google OAuth).
+const AUTH_ENDPOINTS = ['/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me'];
 
 // API request helper
 async function apiRequest<T>(
@@ -38,6 +51,8 @@ async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = getAuthToken();
+  const method = (options.method || 'GET').toUpperCase();
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...options.headers as Record<string, string>,
@@ -47,9 +62,27 @@ async function apiRequest<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  if (useMockApi) {
-    return handleMockRequest<T>(endpoint, options);
+  const openrouterKey = (import.meta as any).env?.VITE_OPENROUTER_API_KEY || localStorage.getItem('openrouter_key') || '';
+  if (openrouterKey && !openrouterKey.startsWith('your_')) {
+    headers['X-OpenRouter-Key'] = openrouterKey;
   }
+
+  // Auth endpoints are NEVER served from mock — always require real backend or Google OAuth
+  const isAuthEndpoint = AUTH_ENDPOINTS.some(ep => endpoint.startsWith(ep));
+
+  // Attach CSRF token for state-changing requests, but skip for auth endpoints
+  // (they are CSRF-exempt on the backend, so fetching a token is wasted latency)
+  if (CSRF_METHODS.has(method) && !useMockApi && !isAuthEndpoint) {
+    try {
+      const csrfToken = await getCsrfToken();
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+    } catch {
+      // Non-fatal — backend will reject if CSRF is strictly required
+    }
+  }
+
+
+
 
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -60,30 +93,25 @@ async function apiRequest<T>(
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Request failed' }));
       
-      // If auth error, clear tokens and redirect to login
+      // If auth error, clear tokens and CSRF cache
       if (response.status === 401 || (error.message && error.message.includes('token'))) {
-        console.warn('Auth error detected, clearing tokens');
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('user');
+        console.warn('Auth error detected, clearing session');
+        secClearSession();
       }
       
-      throw new Error(error.message || `HTTP error! status: ${response.status}`);
+      // If backend returns 502/503 service unavailable (and not auth), fallback to mock mode for this request
+      if ((response.status === 502 || response.status === 503) && !isAuthEndpoint) {
+        showMockWarning();
+        return handleMockRequest<T>(endpoint, options);
+      }
+
+      throw new Error(error.error || error.message || `HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
     return data.data || data;
   } catch (error: any) {
-    // Handle network errors (backend not running, CORS, etc.)
-    const isNetworkError = error.name === 'TypeError' && (
-      error.message.toLowerCase().includes('fetch') || 
-      error.message.toLowerCase().includes('network') ||
-      error.message.toLowerCase().includes('failed')
-    );
-    
-    if (isNetworkError) {
-      console.warn(`Connection failed to backend at ${API_BASE_URL}. Switching to client-side Mock API.`);
-      useMockApi = true;
+    if (!isAuthEndpoint && (error.name === 'TypeError' || error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError'))) {
       showMockWarning();
       return handleMockRequest<T>(endpoint, options);
     }
@@ -494,6 +522,64 @@ function generateMockNotes(topic: string, subject?: string) {
   };
 }
 
+// Mock Flashcard Generator
+function generateMockFlashcards(topic: string, count: number = 5): any[] {
+  const cleanTopic = topic.trim() || "General Learning";
+  const subjectName = cleanTopic.charAt(0).toUpperCase() + cleanTopic.slice(1);
+  
+  return Array.from({ length: Math.min(count, 10) }, (_, i) => {
+    const num = i + 1;
+    if (num === 1) {
+      return {
+        id: `fc-${Date.now()}-1`,
+        front: `What is the core definition of ${cleanTopic}?`,
+        back: `${subjectName} encompasses fundamental principles, theoretical frameworks, and essential terminology in this field.`,
+        subject: subjectName,
+        mastered: false,
+        reviewCount: 0
+      };
+    }
+    if (num === 2) {
+      return {
+        id: `fc-${Date.now()}-2`,
+        front: `What is a primary real-world application of ${cleanTopic}?`,
+        back: `${subjectName} is applied to optimize problem-solving, automate workflows, and structure complex domain problems.`,
+        subject: subjectName,
+        mastered: false,
+        reviewCount: 0
+      };
+    }
+    if (num === 3) {
+      return {
+        id: `fc-${Date.now()}-3`,
+        front: `How does active recall accelerate learning in ${cleanTopic}?`,
+        back: `Active recall challenges the brain to retrieve information from memory without looking at notes, strengthening retention.`,
+        subject: subjectName,
+        mastered: false,
+        reviewCount: 0
+      };
+    }
+    if (num === 4) {
+      return {
+        id: `fc-${Date.now()}-4`,
+        front: `What is a common pitfall or misconception when studying ${cleanTopic}?`,
+        back: `Relying on passive reading instead of active problem solving and spaced flashcard revision.`,
+        subject: subjectName,
+        mastered: false,
+        reviewCount: 0
+      };
+    }
+    return {
+      id: `fc-${Date.now()}-${num}`,
+      front: `Key Concept #${num} in ${cleanTopic}`,
+      back: `Essential insight #${num}: Consistently practicing core definitions and formulas ensures long-term mastery.`,
+      subject: subjectName,
+      mastered: false,
+      reviewCount: 0
+    };
+  });
+}
+
 // Handle Mock Client Requests
 async function handleMockRequest<T>(endpoint: string, options: RequestInit): Promise<T> {
   const method = options.method || 'GET';
@@ -502,63 +588,69 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
   // Simulate minimal latency for realism
   await new Promise(resolve => setTimeout(resolve, 300));
 
-  // --- AUTH ---
-  if (endpoint === '/api/auth/signup') {
-    const { email, password, name } = body;
-    const users = getMockData<any[]>('users', []);
-    const newUser = {
-      id: Math.random().toString(36).substring(7),
-      email,
-      name,
-      total_xp: 0,
-      current_streak: 0,
-      is_new_user: true
-    };
-    users.push({ ...newUser, password });
-    setMockData('users', users);
-    
-    // Set current active session user
-    setMockData('current_user', newUser);
-    return {
-      user: newUser,
-      access_token: 'mock-access-token',
-      refresh_token: 'mock-refresh-token'
-    } as any as T;
+  // ── AUTH — never served from mock ─────────────────────────────────────────
+  if (endpoint.startsWith('/api/auth/')) {
+    throw new Error(
+      'Authentication requires a real account. Please use "Continue with Google" to sign in securely.'
+    );
   }
 
-  if (endpoint === '/api/auth/login') {
-    const { email, password } = body;
-    const users = getMockData<any[]>('users', []);
-    let user = users.find(u => u.email === email);
-    
-    if (!user) {
-      // Auto-register for easy demo logins
-      user = {
-        id: Math.random().toString(36).substring(7),
-        email,
-        name: email.split('@')[0],
-        total_xp: 150,
-        current_streak: 1,
-        is_new_user: false
-      };
-      users.push({ ...user, password });
-      setMockData('users', users);
+  // --- FLASHCARDS ---
+  if (endpoint === '/api/flashcards/generate' && method === 'POST') {
+    const { topic, subject, count } = body || {};
+    let cards = null;
+    try {
+      cards = await directFlashcardsGenerate(topic || 'General Knowledge', subject || 'General', count || 5);
+    } catch { }
+    if (!cards || !Array.isArray(cards) || cards.length === 0) {
+      throw new Error("API Configuration Error: Could not connect to OpenRouter or Gemini APIs directly, and backend is offline.");
     }
-    
-    setMockData('current_user', user);
-    return {
-      user,
-      access_token: 'mock-access-token',
-      refresh_token: 'mock-refresh-token'
-    } as any as T;
+    const flashcards = cards.map((c: any, i: number) => ({
+      id: `fc-${Date.now()}-${i}`,
+      front: c.front || c.question || `Question ${i + 1}`,
+      back: c.back || c.answer || `Answer ${i + 1}`,
+      subject: c.subject || subject || 'General',
+      mastered: false,
+      reviewCount: 0
+    }));
+    const existing = getMockData<any[]>('flashcards', []);
+    existing.unshift(...flashcards);
+    setMockData('flashcards', existing);
+    return flashcards as any as T;
   }
 
-  if (endpoint === '/api/auth/logout') {
-    localStorage.removeItem('mock_current_user');
-    return { message: "Logged out" } as any as T;
+  if (endpoint === '/api/flashcards' && method === 'GET') {
+    return getMockData<any[]>('flashcards', []) as any as T;
   }
 
-  if (endpoint === '/api/auth/me') {
+  if (endpoint === '/api/flashcards' && method === 'POST') {
+    const { front, back, subject } = body || {};
+    const newCard = {
+      id: `fc-${Date.now()}`,
+      front: front || 'Sample Question',
+      back: back || 'Sample Answer',
+      subject: subject || 'General',
+      mastered: false,
+      reviewCount: 0
+    };
+    const cards = getMockData<any[]>('flashcards', []);
+    cards.unshift(newCard);
+    setMockData('flashcards', cards);
+    return newCard as any as T;
+  }
+
+  if (endpoint.startsWith('/api/flashcards/') && method === 'DELETE') {
+    const cardId = endpoint.split('/')[3];
+    let cards = getMockData<any[]>('flashcards', []);
+    cards = cards.filter(c => c.id !== cardId);
+    setMockData('flashcards', cards);
+    return { success: true } as any as T;
+  }
+
+
+
+
+  if (endpoint === '/api/user/profile' && method === 'PUT') {
     const user = getMockData<any>('current_user', {
       id: 'mock-user-id',
       email: 'student@obsidian.edu',
@@ -566,13 +658,36 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
       total_xp: 2450,
       current_streak: 7
     });
-    return { user } as any as T;
+    
+    const updatedUser = {
+      ...user,
+      name: body.name || user.name,
+      avatar_url: body.avatar_url || user.avatar_url
+    };
+    
+    setMockData('current_user', updatedUser);
+    
+    // Also update in users array
+    const users = getMockData<any[]>('users', []);
+    const idx = users.findIndex(u => u.id === user.id);
+    if (idx !== -1) {
+      users[idx] = updatedUser;
+      setMockData('users', users);
+    }
+    
+    return updatedUser as any as T;
   }
 
   // --- TUTOR / CHAT ---
   if (endpoint === '/api/tutor/chat') {
     const { message, conversation_history } = body;
-    const reply = getMockChatResponse(message);
+    let reply = "";
+    try {
+      reply = (await directTutorChat(message, conversation_history)) || "";
+    } catch { }
+    if (!reply) {
+      throw new Error("API Configuration Error: Could not connect to OpenRouter or Gemini APIs directly, and backend is offline.");
+    }
     const newHistory = [...(conversation_history || []), { role: 'user', content: message }, { role: 'assistant', content: reply }];
     return {
       response: reply,
@@ -582,18 +697,31 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
 
   if (endpoint === '/api/tutor/explain') {
     const { topic } = body;
-    return { explanation: getMockChatResponse(topic) } as any as T;
+    let exp = "";
+    try {
+      exp = (await directTutorChat(`Explain ${topic} clearly and concisely with markdown.`)) || "";
+    } catch { }
+    if (!exp) {
+      throw new Error("API Configuration Error: Could not connect to OpenRouter or Gemini APIs directly, and backend is offline.");
+    }
+    return { explanation: exp } as any as T;
   }
 
   // --- QUIZZES ---
   if (endpoint === '/api/quiz/generate') {
     const { topic, difficulty } = body;
     const quizId = Math.random().toString(36).substring(7);
-    const questions = generateMockQuestions(topic);
+    let questions = null;
+    try {
+      questions = await directQuizGenerate(topic || 'General Knowledge', difficulty || 'medium', 5);
+    } catch { }
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      throw new Error("API Configuration Error: Could not connect to OpenRouter or Gemini APIs directly, and backend is offline.");
+    }
     
     const newQuiz = {
       id: quizId,
-      title: `${topic.charAt(0).toUpperCase() + topic.slice(1)} Quiz`,
+      title: `${(topic || 'General').charAt(0).toUpperCase() + (topic || 'General').slice(1)} Quiz`,
       topic,
       difficulty,
       questions
@@ -696,12 +824,18 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
   // --- NOTES ---
   if (endpoint === '/api/notes/generate') {
     const { topic, subject } = body;
-    const aiData = generateMockNotes(topic, subject);
+    let aiData = null;
+    try {
+      aiData = await directNotesGenerate(topic, subject || 'General');
+    } catch { }
+    if (!aiData || !aiData.content) {
+      aiData = generateMockNotes(topic, subject);
+    }
     const noteId = Math.random().toString(36).substring(7);
     
     const newNote = {
       id: noteId,
-      title: aiData.title,
+      title: aiData.title || `${topic} Notes`,
       content: aiData.content,
       tags: [subject || 'General', 'AI-Generated'],
       subject: subject || 'General',
@@ -792,11 +926,17 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
   if (endpoint === '/api/mindmap/generate') {
     const { topic } = body;
     const mapId = Math.random().toString(36).substring(7);
-    const topics = generateMockMindmap(topic);
+    let realMap = null;
+    try {
+      realMap = await directMindmapGenerate(topic);
+    } catch { }
+    const topics = (realMap && Array.isArray(realMap.topics) && realMap.topics.length > 0)
+      ? realMap.topics
+      : generateMockMindmap(topic);
     
     const newMap = {
       id: mapId,
-      title: `${topic.charAt(0).toUpperCase() + topic.slice(1)} Mind Map`,
+      title: (realMap && realMap.title) ? realMap.title : `${(topic || 'Topic').charAt(0).toUpperCase() + (topic || 'Topic').slice(1)} Mind Map`,
       topics,
       ai_generated: true,
       created_at: new Date().toISOString()
@@ -863,15 +1003,25 @@ async function handleMockRequest<T>(endpoint: string, options: RequestInit): Pro
     const { subject, duration_weeks, current_level } = body;
     const planId = Math.random().toString(36).substring(7);
     
-    const weeks = Array.from({ length: duration_weeks || 4 }, (_, i) => ({
-      week: i + 1,
-      title: `Week ${i + 1}: ${subject} Core Mastery`,
-      tasks: [
-        { id: `t-${i}-1`, title: `Introduction to ${subject} Concepts`, completed: false },
-        { id: `t-${i}-2`, title: `Detailed Video Lecture & Textbook Study`, completed: false },
-        { id: `t-${i}-3`, title: `Practice Exercises & Chapter Quiz`, completed: false }
-      ]
-    }));
+    let weeks = null;
+    try {
+      const aiPlan = await directStudyPlanGenerate(subject || 'General', duration_weeks || 4, current_level || 'intermediate');
+      if (aiPlan && Array.isArray(aiPlan.weeks) && aiPlan.weeks.length > 0) {
+        weeks = aiPlan.weeks;
+      }
+    } catch { }
+
+    if (!weeks) {
+      weeks = Array.from({ length: duration_weeks || 4 }, (_, i) => ({
+        week: i + 1,
+        title: `Week ${i + 1}: ${subject} Core Mastery`,
+        tasks: [
+          { id: `t-${i}-1`, title: `Introduction to ${subject} Concepts`, completed: false },
+          { id: `t-${i}-2`, title: `Detailed Video Lecture & Textbook Study`, completed: false },
+          { id: `t-${i}-3`, title: `Practice Exercises & Chapter Quiz`, completed: false }
+        ]
+      }));
+    }
 
     const newPlan = {
       id: planId,
@@ -1141,6 +1291,7 @@ export const authAPI = {
         email: string;
         name: string;
         avatar_url?: string;
+        is_new_user?: boolean;
         total_xp: number;
         current_streak: number;
       };
@@ -1150,7 +1301,7 @@ export const authAPI = {
 
 // Tutor/Chat API
 export const tutorAPI = {
-  chat: async (message: string, conversationHistory: any[] = []) => {
+  chat: async (message: any, conversationHistory: any[] = []) => {
     return apiRequest<{
       response: string;
       conversation_history: any[];
@@ -1165,6 +1316,32 @@ export const tutorAPI = {
       method: 'POST',
       body: JSON.stringify({ topic, level }),
     });
+  },
+
+  uploadDocument: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // We can't use the standard apiRequest wrapper easily for FormData because it stringifies body,
+    // so we make a direct fetch call here with the auth token.
+    const token = localStorage.getItem('access_token');
+    
+    const baseUrl = (import.meta as any).env?.VITE_API_URL || '';
+      
+    const response = await fetch(`${baseUrl}/api/tutor/upload`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to upload document');
+    }
+    
+    return response.json().then(data => data.data || data);
   },
 };
 
@@ -1366,7 +1543,7 @@ export const userAPI = {
     return apiRequest('/api/user/profile');
   },
 
-  updateProfile: async (data: { name?: string; avatar_url?: string; bio?: string; preferences?: any }) => {
+  updateProfile: async (data: { name?: string; avatar_url?: string; bio?: string; preferences?: any; total_xp?: number; current_streak?: number }) => {
     return apiRequest('/api/user/profile', {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -1377,3 +1554,187 @@ export const userAPI = {
     return apiRequest('/api/user/dashboard');
   },
 };
+
+// Flashcard API
+export const flashcardAPI = {
+  generate: async (topic: string, count: number = 5) => {
+    return apiRequest<{
+      cards: Array<{ id: string; front: string; back: string; subject: string; mastered: boolean; reviewCount: number }>;
+    }>('/api/flashcards/generate', {
+      method: 'POST',
+      body: JSON.stringify({ topic, count }),
+    });
+  },
+
+  getAll: async () => {
+    return apiRequest<Array<{ id: string; front: string; back: string; subject: string; mastered: boolean; reviewCount: number }>>('/api/flashcards');
+  },
+
+  create: async (front: string, back: string, subject: string = 'General') => {
+    return apiRequest<{ id: string; front: string; back: string; subject: string; mastered: boolean; reviewCount: number }>('/api/flashcards', {
+      method: 'POST',
+      body: JSON.stringify({ front, back, subject }),
+    });
+  },
+
+  delete: async (cardId: string) => {
+    return apiRequest<{ success: boolean }>(`/api/flashcards/${cardId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Google OAuth 2.0 — Supabase-free direct backend flow
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Session storage keys for the OAuth CSRF state */
+const OAUTH_STATE_KEY       = 'obsidian_google_oauth_state';
+const OAUTH_REDIRECT_URI_KEY = 'obsidian_google_redirect_uri';
+
+/** Callback URI that must match what you set in Google Cloud Console */
+export function getGoogleRedirectUri(): string {
+  return `${window.location.origin}/auth/callback`;
+}
+
+/** Returns true when the current URL is a Google OAuth callback (?code= or ?error=) */
+export function isGoogleCallbackUrl(): boolean {
+  const p = new URLSearchParams(window.location.search);
+  return p.has('code') || p.has('error');
+}
+
+/**
+ * Kick off Google OAuth login.
+ * Asks the backend for a signed auth URL + state token, stores the state, then
+ * redirects the browser to Google's sign-in page.
+ */
+export async function initiateGoogleLogin(): Promise<void> {
+  const redirectUri = getGoogleRedirectUri();
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/auth/google/url?redirect_uri=${encodeURIComponent(redirectUri)}`,
+    { method: 'GET' }
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(
+      err.error ||
+      'Google OAuth is not configured on the server. Add GOOGLE_CLIENT_ID to your Vercel environment variables.'
+    );
+  }
+
+  const { url, state } = await response.json();
+
+  if (!url || !state) {
+    throw new Error('Invalid response from auth server. Please try again.');
+  }
+
+  sessionStorage.setItem(OAUTH_STATE_KEY, state);
+  sessionStorage.setItem(OAUTH_REDIRECT_URI_KEY, redirectUri);
+
+  // Hand control to Google
+  window.location.href = url;
+}
+
+export interface GoogleAuthUser {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string;
+  total_xp: number;
+  current_streak: number;
+  isNewUser: boolean;
+  auth_provider: string;
+}
+
+export interface GoogleAuthResult {
+  user: GoogleAuthUser;
+  access_token: string;
+}
+
+/**
+ * Handle the Google OAuth callback.
+ * Call this when you detect `isGoogleCallbackUrl()` is true.
+ * Validates CSRF state, exchanges the code with the backend, returns user + JWT.
+ * Returns null if the URL does not look like a Google callback at all.
+ * Throws a human-readable Error on any failure.
+ */
+export async function handleGoogleCallback(): Promise<GoogleAuthResult | null> {
+  const params = new URLSearchParams(window.location.search);
+  const code   = params.get('code');
+  const state  = params.get('state');
+  const error  = params.get('error');
+
+  if (!code && !error) return null;
+
+  // Always clean the URL (remove ?code=&state=)
+  window.history.replaceState(null, '', window.location.pathname);
+
+  if (error) {
+    if (error === 'access_denied') throw new Error('Google sign-in was cancelled.');
+    throw new Error(`Google sign-in failed: ${error}`);
+  }
+
+  if (!code) return null;
+
+  // Validate CSRF state
+  const storedState       = sessionStorage.getItem(OAUTH_STATE_KEY);
+  const storedRedirectUri = sessionStorage.getItem(OAUTH_REDIRECT_URI_KEY);
+  sessionStorage.removeItem(OAUTH_STATE_KEY);
+  sessionStorage.removeItem(OAUTH_REDIRECT_URI_KEY);
+
+  if (!storedState || storedState !== state) {
+    throw new Error(
+      'OAuth state mismatch — possible CSRF or expired session. Please try signing in again.'
+    );
+  }
+
+  const redirectUri = storedRedirectUri || getGoogleRedirectUri();
+
+  // Send code to backend → it verifies the Google ID token and issues our JWT
+  const resp = await fetch(`${API_BASE_URL}/api/auth/google/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, redirect_uri: redirectUri, state }),
+  });
+
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    throw new Error(data.error || 'Google sign-in failed. Please try again.');
+  }
+
+  if (!data.user || !data.access_token) {
+    throw new Error('Invalid response from server. Please try again.');
+  }
+
+  return {
+    user: {
+      id:             data.user.id,
+      name:           data.user.name,
+      email:          data.user.email,
+      avatar_url:     data.user.avatar_url || '',
+      total_xp:       data.user.total_xp ?? 0,
+      current_streak: data.user.current_streak ?? 0,
+      isNewUser:      data.user.is_new_user ?? false,
+      auth_provider:  data.user.auth_provider || 'google',
+    },
+    access_token: data.access_token,
+  };
+}
+
+/**
+ * Fetch the client config from the backend to automatically pick up OPENROUTER_API_KEY
+ * so the user doesn't have to configure VITE_OPENROUTER_API_KEY.
+ */
+export async function syncClientConfig(): Promise<void> {
+  try {
+    const data = await apiRequest<{ openrouter_key?: string }>('/api/config', { method: 'GET' });
+    if (data && data.openrouter_key && !data.openrouter_key.startsWith('your_')) {
+      localStorage.setItem('openrouter_key', data.openrouter_key);
+    }
+  } catch (e) {
+    console.warn("Could not sync client config from backend:", e);
+  }
+}

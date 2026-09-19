@@ -2,12 +2,46 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/jpeg" href="/obsidian-logo.jpg" />
+    <link rel="apple-touch-icon" href="/obsidian-logo.jpg" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#3B82F6" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Obsidian - AI Learning Companion</title>
+    <meta name="description" content="Obsidian — Your personal AI-powered learning assistant." />
+
+    <!-- ── Security meta tags ────────────────────────────────────────────── -->
+
+    <!-- CSP: defence-in-depth (production CSP is enforced by Flask-Talisman headers) -->
+    <meta http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline';
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src 'self' https://fonts.gstatic.com;
+        img-src 'self' data: https:;
+        connect-src 'self' https://*.supabase.co https://openrouter.ai;
+        frame-ancestors 'none';
+      " />
+
+    <!-- Prevent MIME-type sniffing -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+
+    <!-- Strict referrer — no full URL in Referer header cross-origin -->
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <!-- Prevent page from being embedded in frames (XFO) -->
+    <meta http-equiv="X-Frame-Options" content="DENY" />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

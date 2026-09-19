@@ -1,4 +1,4 @@
-from services.supabase_service import SupabaseService
+from services.mongo_service import MongoService
 from services.ai_tutor_service import AITutorService
 from services.xp_service import XPService
 import json
@@ -13,7 +13,7 @@ class MindMapController:
             "topics": topics or []
         }
         
-        mindmap = SupabaseService.create_record("mindmaps", mindmap_data)
+        mindmap = MongoService.create_record("mindmaps", mindmap_data)
         
         # Award XP
         XPService.award_xp(user_id, "mindmap_created")
@@ -25,9 +25,12 @@ class MindMapController:
         """Generate mind map using AI"""
         try:
             mindmap_json = AITutorService.generate_mindmap(topic)
-            mindmap_data = json.loads(mindmap_json)
+            try:
+                mindmap_data = json.loads(mindmap_json)
+            except json.JSONDecodeError as je:
+                print(f"FAILED TO PARSE JSON. RAW RESPONSE WAS: {mindmap_json}")
+                raise je
             
-            # Save to database
             db_data = {
                 "user_id": user_id,
                 "title": mindmap_data.get("title", topic),
@@ -35,7 +38,11 @@ class MindMapController:
                 "ai_generated": True
             }
             
-            mindmap = SupabaseService.create_record("mindmaps", db_data)
+            try:
+                mindmap = MongoService.create_record("mindmaps", db_data)
+            except Exception as e:
+                print(f"[WARNING] Failed to save AI-generated mindmap: {e}")
+                mindmap = {"id": "temp-mindmap-id", **db_data}
             
             # Award XP
             XPService.award_xp(user_id, "mindmap_created")
@@ -47,35 +54,30 @@ class MindMapController:
     @staticmethod
     def get_mindmap(mindmap_id: str):
         """Get mind map by ID"""
-        return SupabaseService.get_record("mindmaps", mindmap_id)
+        return MongoService.get_record("mindmaps", mindmap_id, id_column="_id")
     
     @staticmethod
     def get_user_mindmaps(user_id: str):
         """Get user's mind maps"""
-        return SupabaseService.query_records(
-            "mindmaps",
-            lambda q: q.select("*").eq("user_id", user_id).order("created_at", desc=True)
-        )
+        return MongoService.get_records("mindmaps", filters={"user_id": user_id}, order_by="-created_at")
     
     @staticmethod
     def update_mindmap(mindmap_id: str, user_id: str, data: dict):
         """Update mind map"""
-        # Verify ownership
-        mindmap = SupabaseService.get_record("mindmaps", mindmap_id)
+        mindmap = MongoService.get_record("mindmaps", mindmap_id, id_column="_id")
         if not mindmap or mindmap.get("user_id") != user_id:
             raise Exception("Unauthorized or mind map not found")
         
         allowed_fields = ["title", "topics"]
         update_data = {k: v for k, v in data.items() if k in allowed_fields}
         
-        return SupabaseService.update_record("mindmaps", mindmap_id, update_data)
+        return MongoService.update_record("mindmaps", mindmap_id, update_data, id_column="_id")
     
     @staticmethod
     def delete_mindmap(mindmap_id: str, user_id: str):
         """Delete mind map"""
-        # Verify ownership
-        mindmap = SupabaseService.get_record("mindmaps", mindmap_id)
+        mindmap = MongoService.get_record("mindmaps", mindmap_id, id_column="_id")
         if not mindmap or mindmap.get("user_id") != user_id:
             raise Exception("Unauthorized or mind map not found")
         
-        return SupabaseService.delete_record("mindmaps", mindmap_id)
+        return MongoService.delete_record("mindmaps", mindmap_id, id_column="_id")

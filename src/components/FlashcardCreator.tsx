@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocalStorage } from "../utils/useLocalStorage";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -19,7 +20,7 @@ interface Flashcard {
 }
 
 export function FlashcardCreator() {
-  const [flashcards, setFlashcards] = useState<Flashcard[]>([
+  const [flashcards, setFlashcards] = useLocalStorage<Flashcard[]>("flashcards", [
     {
       id: "1",
       front: "What is the derivative of x²?",
@@ -53,9 +54,13 @@ export function FlashcardCreator() {
   const [newCardBack, setNewCardBack] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
 
+  const [showAiDialog, setShowAiDialog] = useState(false);
+  const [aiTopicInput, setAiTopicInput] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+
   const currentCard = flashcards[currentCardIndex];
   const masteredCount = flashcards.filter(c => c.mastered).length;
-  const progress = (masteredCount / flashcards.length) * 100;
+  const progress = flashcards.length > 0 ? (masteredCount / flashcards.length) * 100 : 0;
 
   const handleCreateCard = () => {
     if (!newCardFront.trim() || !newCardBack.trim()) {
@@ -79,20 +84,42 @@ export function FlashcardCreator() {
     toast.success("Flashcard created!");
   };
 
-  const generateFlashcards = () => {
-    toast.info("🎲 Generating AI flashcards...");
-    setTimeout(() => {
-      const aiCard: Flashcard = {
-        id: Date.now().toString(),
-        front: "What is Big O notation?",
-        back: "Big O notation describes the time/space complexity of algorithms, representing the worst-case scenario growth rate",
-        subject: "Computer Science",
+  const handleAiGenerate = async (topicToUse?: string) => {
+    const targetTopic = topicToUse || aiTopicInput.trim();
+    if (!targetTopic) {
+      toast.error("Please enter a topic for AI flashcard generation");
+      return;
+    }
+
+    setIsGenerating(true);
+    toast.info(`Generating AI flashcards with OpenRouter for "${targetTopic}"...`);
+
+    try {
+      const { flashcardAPI } = await import("../utils/api");
+      const res = await flashcardAPI.generate(targetTopic, 5);
+      const newCards: Flashcard[] = (res.cards || []).map((c: any, idx: number) => ({
+        id: `ai-${Date.now()}-${idx}`,
+        front: c.front,
+        back: c.back,
+        subject: c.subject || targetTopic,
         mastered: false,
         reviewCount: 0
-      };
-      setFlashcards([...flashcards, aiCard]);
-      toast.success("AI flashcard generated!");
-    }, 1500);
+      }));
+
+      if (newCards.length > 0) {
+        setFlashcards(prev => [...newCards, ...prev]);
+        toast.success(`Generated ${newCards.length} AI flashcards for "${targetTopic}"! ✨`);
+        setShowAiDialog(false);
+        setAiTopicInput("");
+      } else {
+        toast.error("No flashcards were generated. Please try another topic.");
+      }
+    } catch (err: any) {
+      console.error("Flashcard generation error:", err);
+      toast.error(err.message || "Failed to generate AI flashcards");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const markCard = (mastered: boolean) => {
@@ -286,11 +313,11 @@ export function FlashcardCreator() {
           </Button>
           <Button
             variant="outline"
-            onClick={generateFlashcards}
-            className="hover:bg-white/10"
+            onClick={() => setShowAiDialog(!showAiDialog)}
+            className="hover:bg-white/10 text-blue-400 border-blue-500/30"
           >
             <Sparkles className="w-4 h-4 mr-2" />
-            AI Generate
+            Gemini AI Generate
           </Button>
           <Button
             variant="outline"
@@ -302,6 +329,76 @@ export function FlashcardCreator() {
           </Button>
         </div>
       </div>
+
+      {/* AI Generate Dialog */}
+      {showAiDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-blue-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-blue-400" />
+                <h3 className="text-lg font-medium text-blue-300">Generate Flashcards with OpenRouter AI</h3>
+              </div>
+              <button onClick={() => setShowAiDialog(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-300">
+              Enter any subject or topic, and OpenRouter AI will generate structured practice flashcards for you.
+            </p>
+              <div className="space-y-4">
+                <Input
+                  placeholder="e.g., Quantum Computing, Organic Chemistry, Calculus Derivatives..."
+                  value={aiTopicInput}
+                  onChange={(e) => setAiTopicInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAiGenerate()}
+                  className="bg-black/40 border-blue-500/30 text-white placeholder:text-muted-foreground"
+                />
+                
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Quick topics:</span>
+                  {["Calculus", "Python Basics", "Photosynthesis", "Machine Learning", "World History"].map((preset) => (
+                    <Badge
+                      key={preset}
+                      variant="outline"
+                      className="cursor-pointer hover:bg-blue-600/30 border-blue-500/30 text-blue-300"
+                      onClick={() => {
+                        setAiTopicInput(preset);
+                        handleAiGenerate(preset);
+                      }}
+                    >
+                      {preset}
+                    </Badge>
+                  ))}
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button variant="ghost" onClick={() => setShowAiDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => handleAiGenerate()}
+                    disabled={isGenerating || !aiTopicInput.trim()}
+                    className="gradient-blue text-white shadow-lg shadow-blue-500/20"
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Generate Cards
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Create Form */}
       <AnimatePresence>

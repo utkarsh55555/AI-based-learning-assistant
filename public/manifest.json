@@ -1,0 +1,26 @@
+﻿{
+  "name": "Obsidian - AI Learning Companion",
+  "short_name": "Obsidian",
+  "description": "Your personal AI-powered learning assistant with quizzes, mind maps, tutor chat and more.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0A",
+  "theme_color": "#3B82F6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/obsidian-logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/obsidian-logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "productivity"],
+  "lang": "en-US"
+}
